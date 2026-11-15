@@ -1,0 +1,293 @@
+openapi: 3.0.3
+info:
+  title: Taxonomy Context API
+  description: API-First REST specification for Category Trees and Hierarchies in PIM.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local Development Server
+
+paths:
+  /api/v1/categories:
+    post:
+      summary: Create a Category Node
+      operationId: createCategory
+      tags:
+        - Taxonomy
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryRequest'
+      responses:
+        '201':
+          description: Category node created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '400':
+          description: Invalid category input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: List all categories or roots
+      operationId: listCategories
+      tags:
+        - Taxonomy
+      parameters:
+        - name: rootOnly
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: List of category nodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategoryResponse'
+
+  /api/v1/categories/{id}:
+    get:
+      summary: Get Category by ID
+      operationId: getCategoryById
+      tags:
+        - Taxonomy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Category found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '404':
+          description: Category not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/categories/{id}/tree:
+    get:
+      summary: Get full hierarchical category subtree
+      operationId: getCategorySubtree
+      tags:
+        - Taxonomy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: maxDepth
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Subtree structure rooted at target category
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryTreeNodeResponse'
+        '404':
+          description: Category not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/categories/{id}/ancestors:
+    get:
+      summary: Get ancestors of a category node (breadcrumbs)
+      operationId: getCategoryAncestors
+      tags:
+        - Taxonomy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of ancestor categories ordered from root down
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategoryResponse'
+        '404':
+          description: Category not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/categories/{id}/descendants:
+    get:
+      summary: Get flat list of descendants
+      operationId: getCategoryDescendants
+      tags:
+        - Taxonomy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of descendant categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategoryResponse'
+
+  /api/v1/categories/{id}/move:
+    post:
+      summary: Move a category to a new parent node
+      operationId: moveCategory
+      tags:
+        - Taxonomy
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MoveCategoryRequest'
+      responses:
+        '200':
+          description: Category subtree relocated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryResponse'
+        '400':
+          description: Invalid move operation (e.g. cycle detected)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Category or target parent not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    CreateCategoryRequest:
+      type: object
+      required:
+        - code
+        - name
+      properties:
+        code:
+          type: string
+          example: "CAT-COMPUTING-LAPTOPS"
+        name:
+          type: string
+          example: "Laptops & Notebooks"
+        description:
+          type: string
+          example: "Portable personal computers"
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+
+    MoveCategoryRequest:
+      type: object
+      properties:
+        newParentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Target parent ID or null to make it a root category
+
+    CategoryResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+        level:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    CategoryTreeNodeResponse:
+      type: object
+      properties:
+        category:
+          $ref: '#/components/schemas/CategoryResponse'
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryTreeNodeResponse'
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+          example: 404
+        error:
+          type: string
+          example: "Not Found"
+        message:
+          type: string
+          example: "Category not found"
+        path:
+          type: string
+          example: "/api/v1/categories/123"

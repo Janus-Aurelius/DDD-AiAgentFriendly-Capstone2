@@ -1,0 +1,19 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: pim-backend
+  datasource:
+    url: jdbc:postgresql://localhost:5432/pim_db
+    username: pim_user
+    password: pim_password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        default_schema: catalog
+        format_sql: true
+    open-in-view: false

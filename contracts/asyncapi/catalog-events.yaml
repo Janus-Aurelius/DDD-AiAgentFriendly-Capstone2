@@ -1,0 +1,180 @@
+asyncapi: '2.6.0'
+info:
+  title: Catalog Domain Events
+  version: '1.0.0'
+  description: Event-Driven specifications for Catalog context domain events (Prep for Phase 2 AI & Integration).
+
+defaultContentType: application/json
+
+channels:
+  catalog.product.events:
+    description: Stream of events concerning product aggregate state mutations
+    publish:
+      operationId: onProductEventPublished
+      summary: Events emitted by the Catalog context when product state changes
+      message:
+        oneOf:
+          - $ref: '#/components/messages/ProductCreatedMessage'
+          - $ref: '#/components/messages/ProductEnrichedMessage'
+          - $ref: '#/components/messages/ProductUpdatedMessage'
+          - $ref: '#/components/messages/ProductVariantAddedMessage'
+    subscribe:
+      operationId: consumeProductEvents
+      summary: Consumed by downstream services such as Python AI Enrichment workers, Search Indexers, and Analytics.
+      message:
+        oneOf:
+          - $ref: '#/components/messages/ProductCreatedMessage'
+          - $ref: '#/components/messages/ProductEnrichedMessage'
+
+components:
+  messages:
+    ProductCreatedMessage:
+      name: ProductCreatedEvent
+      title: Product Created Event
+      summary: Published immediately after a new ProductFamily aggregate is persisted
+      payload:
+        $ref: '#/components/schemas/ProductCreatedPayload'
+
+    ProductEnrichedMessage:
+      name: ProductEnrichedEvent
+      title: Product Enriched Event
+      summary: Published when product metadata, tags, or dynamic attributes are enriched by AI workers or human curation
+      payload:
+        $ref: '#/components/schemas/ProductEnrichedPayload'
+
+    ProductUpdatedMessage:
+      name: ProductUpdatedEvent
+      title: Product Updated Event
+      summary: Published when core product family details (name, description, category) are modified
+      payload:
+        $ref: '#/components/schemas/ProductUpdatedPayload'
+
+    ProductVariantAddedMessage:
+      name: ProductVariantAddedEvent
+      title: Product Variant Added Event
+      summary: Published when a new SKU variant is attached to an existing product aggregate
+      payload:
+        $ref: '#/components/schemas/ProductVariantAddedPayload'
+
+  schemas:
+    BaseEventEnvelope:
+      type: object
+      required:
+        - eventId
+        - eventType
+        - timestamp
+        - aggregateId
+        - version
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        aggregateId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+
+    ProductCreatedPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEventEnvelope'
+        - type: object
+          required:
+            - code
+            - name
+          properties:
+            code:
+              type: string
+            name:
+              type: string
+            description:
+              type: string
+            categoryId:
+              type: string
+              format: uuid
+              nullable: true
+            initialAttributes:
+              type: object
+              additionalProperties: true
+
+    ProductEnrichedPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEventEnvelope'
+        - type: object
+          required:
+            - source
+            - enrichedAttributes
+          properties:
+            source:
+              type: string
+              description: Identifier of the enrichment worker or human reviewer
+              example: "ai-enrichment-agent"
+            enrichmentTimestamp:
+              type: string
+              format: date-time
+            enrichedDescription:
+              type: string
+              nullable: true
+            enrichedAttributes:
+              type: object
+              additionalProperties: true
+            confidenceScore:
+              type: number
+              minimum: 0.0
+              maximum: 1.0
+              example: 0.94
+
+    ProductUpdatedPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEventEnvelope'
+        - type: object
+          properties:
+            code:
+              type: string
+            name:
+              type: string
+            description:
+              type: string
+            categoryId:
+              type: string
+              format: uuid
+
+    ProductVariantAddedPayload:
+      allOf:
+        - $ref: '#/components/schemas/BaseEventEnvelope'
+        - type: object
+          required:
+            - variantId
+            - sku
+            - name
+            - price
+          properties:
+            variantId:
+              type: string
+              format: uuid
+            sku:
+              type: string
+            name:
+              type: string
+            price:
+              type: number
+            currency:
+              type: string
+            dimensions:
+              type: object
+              properties:
+                length:
+                  type: number
+                width:
+                  type: number
+                height:
+                  type: number
+                weight:
+                  type: number
+                unit:
+                  type: string

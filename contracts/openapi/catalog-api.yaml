@@ -1,0 +1,391 @@
+openapi: 3.0.3
+info:
+  title: Catalog Context API
+  description: API-First REST specification for PIM Product CRUD, Variants, and Attribute Enrichment.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local Development Server
+
+paths:
+  /api/v1/products:
+    post:
+      summary: Create a new Product Family
+      operationId: createProduct
+      tags:
+        - Product Family
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductFamilyRequest'
+      responses:
+        '201':
+          description: Product Family created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductFamilyResponse'
+        '400':
+          description: Invalid input data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Product code already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+      summary: List Product Families
+      operationId: listProducts
+      tags:
+        - Product Family
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: categoryId
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: A paginated list of product families
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProductFamilyResponse'
+
+  /api/v1/products/{id}:
+    get:
+      summary: Get Product Family details by ID
+      operationId: getProductById
+      tags:
+        - Product Family
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Full Product Family aggregate with variants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductFamilyResponse'
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete a Product Family
+      operationId: deleteProduct
+      tags:
+        - Product Family
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Product deleted successfully
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/products/{id}/variants:
+    post:
+      summary: Add a SKU Variant to a Product Family
+      operationId: addVariant
+      tags:
+        - Product Variants
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProductVariantRequest'
+      responses:
+        '201':
+          description: Variant added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductVariantResponse'
+        '404':
+          description: Product Family not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: SKU already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/products/{id}/enrich:
+    post:
+      summary: Enrich Product Family attributes (AI-assisted or manual)
+      operationId: enrichProduct
+      tags:
+        - Product Enrichment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrichProductRequest'
+      responses:
+        '200':
+          description: Product successfully enriched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductFamilyResponse'
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    CreateProductFamilyRequest:
+      type: object
+      required:
+        - code
+        - name
+      properties:
+        code:
+          type: string
+          example: "PROD-TECH-001"
+        name:
+          type: string
+          example: "Ultra-Light Carbon Fiber Laptop"
+        description:
+          type: string
+          example: "A high performance ultra-portable laptop designed for engineers."
+        categoryId:
+          type: string
+          format: uuid
+        attributes:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AttributeValueDto'
+
+    CreateProductVariantRequest:
+      type: object
+      required:
+        - sku
+        - name
+        - price
+      properties:
+        sku:
+          type: string
+          example: "SKU-LAP-16GB-512GB"
+        name:
+          type: string
+          example: "16GB RAM / 512GB SSD / Space Gray"
+        price:
+          type: number
+          format: double
+          example: 1299.99
+        currency:
+          type: string
+          example: "USD"
+        dimensions:
+          $ref: '#/components/schemas/DimensionsDto'
+        attributes:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AttributeValueDto'
+
+    EnrichProductRequest:
+      type: object
+      required:
+        - source
+        - attributes
+      properties:
+        source:
+          type: string
+          description: Identifier of the enrichment origin (e.g. AI-Agent, Catalog-Curator)
+          example: "AI-Agent-Enricher-v1"
+        description:
+          type: string
+          description: Optional enriched description suggested by AI
+          example: "Engineered for maximum portability and developer productivity with military-grade carbon casing."
+        attributes:
+          type: object
+          description: Key-value attributes to merge or update
+          additionalProperties:
+            $ref: '#/components/schemas/AttributeValueDto'
+
+    AttributeValueDto:
+      type: object
+      required:
+        - type
+        - value
+      properties:
+        type:
+          type: string
+          enum: [STRING, NUMBER, BOOLEAN, JSON, LOCALIZED_STRING]
+          example: "STRING"
+        value:
+          description: The attribute value
+          example: "Carbon Black"
+        unit:
+          type: string
+          nullable: true
+          example: "kg"
+
+    DimensionsDto:
+      type: object
+      required:
+        - length
+        - width
+        - height
+        - weight
+        - unit
+      properties:
+        length:
+          type: number
+          example: 30.5
+        width:
+          type: number
+          example: 21.2
+        height:
+          type: number
+          example: 1.5
+        weight:
+          type: number
+          example: 1.15
+        unit:
+          type: string
+          example: "cm/kg"
+
+    ProductVariantResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        sku:
+          type: string
+        name:
+          type: string
+        price:
+          type: number
+        currency:
+          type: string
+        dimensions:
+          $ref: '#/components/schemas/DimensionsDto'
+        attributes:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AttributeValueDto'
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ProductFamilyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        categoryId:
+          type: string
+          format: uuid
+        attributes:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/AttributeValueDto'
+        variants:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductVariantResponse'
+        version:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+          example: 404
+        error:
+          type: string
+          example: "Not Found"
+        message:
+          type: string
+          example: "Product with ID not found"
+        path:
+          type: string
+          example: "/api/v1/products/123"
