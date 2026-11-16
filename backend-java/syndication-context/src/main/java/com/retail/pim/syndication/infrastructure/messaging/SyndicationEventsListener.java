@@ -84,4 +84,33 @@ public class SyndicationEventsListener {
             log.error("Failed to process AssetLinkedToProduct event in Syndication", e);
         }
     }
+
+    @KafkaListener(
+            topics = "${kafka.topics.compliance-events:compliance.report.events}",
+            groupId = "${spring.kafka.consumer.group-id:pim-syndication-compliance-consumer}"
+    )
+    public void onComplianceEvaluated(String message) {
+        try {
+            JsonNode root = objectMapper.readTree(message);
+            if (!"ComplianceEvaluated".equalsIgnoreCase(root.path("eventType").asText())) {
+                return;
+            }
+
+            String productCode = root.path("productCode").asText();
+            if (productCode == null || productCode.isBlank()) {
+                productCode = root.path("productId").asText();
+            }
+            String targetLocale = root.path("targetLocale").asText("US");
+            boolean isPublishable = root.hasNonNull("isPublishable")
+                    ? root.path("isPublishable").asBoolean()
+                    : "COMPLIANT".equalsIgnoreCase(root.path("status").asText());
+
+            log.info("Syndication Listener: Received ComplianceEvaluated for product [{}], Region [{}], publishable={}",
+                    productCode, targetLocale, isPublishable);
+            projector.projectComplianceCleared(productCode, targetLocale, isPublishable);
+
+        } catch (Exception e) {
+            log.error("Failed to process ComplianceEvaluated event in Syndication", e);
+        }
+    }
 }

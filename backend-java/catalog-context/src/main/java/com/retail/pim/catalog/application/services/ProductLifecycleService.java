@@ -7,8 +7,12 @@ import com.retail.pim.catalog.domain.model.Variant;
 import com.retail.pim.catalog.domain.repository.ProductRepository;
 import com.retail.pim.catalog.domain.valueobjects.AttributeValue;
 import com.retail.pim.catalog.infrastructure.persistence.OutboxEventPublisher;
+import com.retail.pim.catalog.domain.service.PublishabilityGate;
+import com.retail.pim.shared.domain.DomainEvent;
 import com.retail.pim.shared.exceptions.DomainException;
 import com.retail.pim.shared.exceptions.ResourceNotFoundException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -27,10 +31,23 @@ public class ProductLifecycleService {
 
     private final ProductRepository productRepository;
     private final OutboxEventPublisher outboxPublisher;
+    private final ApplicationEventPublisher eventPublisher;
+    private final PublishabilityGate publishabilityGate;
 
-    public ProductLifecycleService(ProductRepository productRepository, OutboxEventPublisher outboxPublisher) {
+    public ProductLifecycleService(ProductRepository productRepository,
+                                  OutboxEventPublisher outboxPublisher,
+                                  ApplicationEventPublisher eventPublisher,
+                                  @Autowired(required = false) PublishabilityGate publishabilityGate) {
         this.productRepository = productRepository;
         this.outboxPublisher = outboxPublisher;
+        this.eventPublisher = eventPublisher;
+        this.publishabilityGate = publishabilityGate;
+    }
+
+    public ProductLifecycleService(ProductRepository productRepository,
+                                  OutboxEventPublisher outboxPublisher,
+                                  ApplicationEventPublisher eventPublisher) {
+        this(productRepository, outboxPublisher, eventPublisher, null);
     }
 
     /**
@@ -50,7 +67,9 @@ public class ProductLifecycleService {
                 command.attributes()
         );
 
-        return productRepository.save(draftProduct);
+        ProductFamily saved = productRepository.save(draftProduct);
+        dispatchDomainEvents(draftProduct);
+        return saved;
     }
 
     /**
@@ -64,7 +83,24 @@ public class ProductLifecycleService {
 
         product.enrich(localizedDescriptions, attributes);
 
-        return productRepository.save(product);
+        ProductFamily saved = productRepository.save(product);
+        dispatchDomainEvents(product);
+        return saved;
+    }
+
+    /**
+     * Use Case: Updates attributes on an existing ProductFamily aggregate.
+     * Emits ProductAttributesUpdatedEvent to trigger Compliance Engine evaluation.
+     */
+    public ProductFamily updateProductAttributes(UUID productId, Map<String, AttributeValue> attributes) {
+        ProductFamily product = productRepository.findById(productId)
+                .orElseThrow(() -> new ResourceNotFoundException("ProductFamily", productId));
+
+        product.updateAttributes(attributes);
+
+        ProductFamily saved = productRepository.save(product);
+        dispatchDomainEvents(product);
+        return saved;
     }
 
     /**
@@ -88,19 +124,51 @@ public class ProductLifecycleService {
         ProductFamily product = productRepository.findById(command.productId())
                 .orElseThrow(() -> new ResourceNotFoundException("ProductFamily", command.productId()));
 
+        // Hard Gate: Verify that mandatory/blocking compliance rules are satisfied
+        if (publishabilityGate != null) {
+            String locale = command.targetLocale();
+            String channel = command.targetChannel();
+            if (!publishabilityGate.canPublish(product, locale, channel)) {
+                List<String> blockers = publishabilityGate.getBlockingViolations(product, locale, channel);
+                throw new DomainException(String.format(
+                        "Cannot publish product '%s' for target [%s / %s]: %d blocking compliance violation(s) present: %s",
+                        product.getCode(), locale, channel, blockers.size(), String.join("; ", blockers)
+                ));
+            }
+        }
+
         // Aggregate executes state machine logic and registers ProductPublished event
         product.publish();
 
         // 1. Persist published state to PostgreSQL
         ProductFamily saved = productRepository.save(product);
 
-        // 2. Transactionally write domain events to Outbox table within the same DB transaction
-        outboxPublisher.publishEvents(product.getDomainEvents());
-
-        // 3. Clear events from aggregate in-memory state
-        product.clearDomainEvents();
+        // 2. Dispatch domain events
+        dispatchDomainEvents(product);
 
         return saved;
+    }
+
+    private void dispatchDomainEvents(ProductFamily aggregate) {
+        List<DomainEvent> events = aggregate.getDomainEvents();
+        if (events == null || events.isEmpty()) {
+            return;
+        }
+
+        // Write domain events to Outbox table within the same DB transaction
+        if (outboxPublisher != null) {
+            outboxPublisher.publishEvents(events);
+        }
+
+        // Publish to in-process Spring ApplicationEventPublisher
+        if (eventPublisher != null) {
+            for (DomainEvent event : events) {
+                eventPublisher.publishEvent(event);
+            }
+        }
+
+        // Clear events from aggregate in-memory state
+        aggregate.clearDomainEvents();
     }
 
     /**

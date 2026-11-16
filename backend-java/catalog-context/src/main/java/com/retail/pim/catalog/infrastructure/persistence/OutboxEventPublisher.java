@@ -2,6 +2,7 @@ package com.retail.pim.catalog.infrastructure.persistence;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.retail.pim.catalog.domain.events.ProductAttributesUpdatedEvent;
 import com.retail.pim.catalog.domain.events.ProductPublished;
 import com.retail.pim.shared.domain.DomainEvent;
 import org.slf4j.Logger;
@@ -77,7 +78,7 @@ public class OutboxEventPublisher {
     }
 
     private String determineAggregateType(DomainEvent event) {
-        if (event instanceof ProductPublished) {
+        if (event instanceof ProductPublished || event instanceof ProductAttributesUpdatedEvent) {
             return "ProductFamily";
         }
         return "UnknownAggregate";
@@ -86,6 +87,9 @@ public class OutboxEventPublisher {
     private UUID determineAggregateId(DomainEvent event) {
         if (event instanceof ProductPublished pe) {
             return pe.productId();
+        }
+        if (event instanceof ProductAttributesUpdatedEvent ae) {
+            return ae.productId();
         }
         return event.getEventId();
     }

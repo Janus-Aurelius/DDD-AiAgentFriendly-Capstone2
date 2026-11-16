@@ -12,6 +12,7 @@ import com.retail.pim.catalog.domain.valueobjects.Dimensions;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -150,6 +151,23 @@ public class ProductEnrichmentController {
 
         ProductFamily enriched = lifecycleService.enrichProduct(id, request.localizedDescriptions(), attrs);
         return ResponseEntity.ok(toResponse(enriched));
+    }
+
+    /**
+     * Updates dynamic product attributes and emits ProductAttributesUpdatedEvent.
+     */
+    @PatchMapping("/{id}/attributes")
+    public ResponseEntity<ProductResponse> updateAttributes(
+            @PathVariable UUID id,
+            @RequestBody Map<String, String> attributes) {
+
+        Map<String, AttributeValue> attrs = new HashMap<>();
+        if (attributes != null) {
+            attributes.forEach((k, v) -> attrs.put(k, AttributeValue.ofString(v)));
+        }
+
+        ProductFamily updated = lifecycleService.updateProductAttributes(id, attrs);
+        return ResponseEntity.ok(toResponse(updated));
     }
 
     /**

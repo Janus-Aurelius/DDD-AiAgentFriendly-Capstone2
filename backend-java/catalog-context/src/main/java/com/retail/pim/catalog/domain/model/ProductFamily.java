@@ -1,6 +1,7 @@
 package com.retail.pim.catalog.domain.model;
 
 import com.retail.pim.catalog.domain.enums.ProductLifecycleState;
+import com.retail.pim.catalog.domain.events.ProductAttributesUpdatedEvent;
 import com.retail.pim.catalog.domain.events.ProductPublished;
 import com.retail.pim.catalog.domain.valueobjects.AttributeValue;
 import com.retail.pim.shared.domain.AggregateRoot;
@@ -75,7 +76,7 @@ public class ProductFamily extends AggregateRoot<UUID> {
      */
     public static ProductFamily createDraft(String code, String name, String description,
                                             UUID categoryId, Map<String, AttributeValue> initialAttributes) {
-        return new ProductFamily(
+        ProductFamily product = new ProductFamily(
                 UUID.randomUUID(),
                 code,
                 name,
@@ -86,6 +87,15 @@ public class ProductFamily extends AggregateRoot<UUID> {
                 initialAttributes,
                 0L
         );
+        if (initialAttributes != null && !initialAttributes.isEmpty()) {
+            product.registerEvent(new ProductAttributesUpdatedEvent(
+                    product.getId(),
+                    product.getVersion(),
+                    product.getCategoryId(),
+                    product.getAttributes()
+            ));
+        }
+        return product;
     }
 
     // ==========================================================================
@@ -109,8 +119,14 @@ public class ProductFamily extends AggregateRoot<UUID> {
         if (newLocalizedDescriptions != null) {
             this.localizedDescriptions.putAll(newLocalizedDescriptions);
         }
-        if (updatedAttributes != null) {
+        if (updatedAttributes != null && !updatedAttributes.isEmpty()) {
             this.attributes.putAll(updatedAttributes);
+            registerEvent(new ProductAttributesUpdatedEvent(
+                    this.getId(),
+                    this.version,
+                    this.categoryId,
+                    this.attributes
+            ));
         }
 
         // Strict Invariant: Localized marketing descriptions must exist and have non-empty content
@@ -154,16 +170,6 @@ public class ProductFamily extends AggregateRoot<UUID> {
                 throw new DomainException(String.format(
                         "Approval failed for product '%s': Variant SKU '%s' is missing physical weight or dimensions",
                         this.code, variant.getSku()));
-            }
-        }
-
-        // Invariant: If categorized as Electronics, mandatory energy_rating attribute is required
-        if (isElectronics()) {
-            AttributeValue energyRating = attributes.get("energy_rating");
-            if (energyRating == null || energyRating.asString().isBlank()) {
-                throw new DomainException(String.format(
-                        "Compliance rule failed for product '%s': Electronics products require a certified 'energy_rating' attribute before approval",
-                        this.code));
             }
         }
 
@@ -271,6 +277,26 @@ public class ProductFamily extends AggregateRoot<UUID> {
         }
         this.attributes.put(key.trim(), value);
         this.updatedAt = Instant.now();
+        registerEvent(new ProductAttributesUpdatedEvent(
+                this.getId(),
+                this.version,
+                this.categoryId,
+                this.attributes
+        ));
+    }
+
+    public void updateAttributes(Map<String, AttributeValue> newAttributes) {
+        if (newAttributes == null || newAttributes.isEmpty()) {
+            return;
+        }
+        this.attributes.putAll(newAttributes);
+        this.updatedAt = Instant.now();
+        registerEvent(new ProductAttributesUpdatedEvent(
+                this.getId(),
+                this.version,
+                this.categoryId,
+                this.attributes
+        ));
     }
 
     public void setLocalizedDescription(String locale, String description) {
@@ -279,15 +305,6 @@ public class ProductFamily extends AggregateRoot<UUID> {
         }
         this.localizedDescriptions.put(locale.trim().toLowerCase(), description.trim());
         this.updatedAt = Instant.now();
-    }
-
-    private boolean isElectronics() {
-        AttributeValue flag = attributes.get("is_electronics");
-        if (flag != null && flag.asBoolean()) {
-            return true;
-        }
-        AttributeValue family = attributes.get("family_type");
-        return family != null && family.asString().toLowerCase().contains("electronic");
     }
 
     public List<String> getVariantSkus() {

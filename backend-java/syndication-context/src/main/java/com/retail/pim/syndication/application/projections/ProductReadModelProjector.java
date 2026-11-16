@@ -133,8 +133,13 @@ public class ProductReadModelProjector {
         amazonCatalog.upsertProjection(projection);
         channelCatalogRepository.save(amazonCatalog);
 
-        // 3. Transform and push to Amazon SP-API if primary image exists
+        // 3. Transform and push to Amazon SP-API if primary image exists and compliance is cleared (Hard Gate)
         if (projection.getPrimaryImageUrl() != null && !projection.getPrimaryImageUrl().isBlank()) {
+            if (!projection.isComplianceCleared()) {
+                log.warn("Projector: Blocked external Amazon syndication for SKU [{}] in Region [{}] - Compliance clearance not granted (blocking violations present)",
+                        projection.getSku(), projection.getRegionCode());
+                return;
+            }
             Map<String, Object> payload = amazonCatalog.transformForExport(projection);
             amazonClient.pushListingFeed("SELLER_US_12345", payload);
         } else {

@@ -28,6 +28,7 @@
         <module>dam-context</module>
         <module>localization-context</module>
         <module>syndication-context</module>
+        <module>compliance-context</module>
     </modules>
 
     <dependencyManagement>
@@ -70,6 +71,11 @@
             <dependency>
                 <groupId>com.retail.pim</groupId>
                 <artifactId>syndication-context</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.retail.pim</groupId>
+                <artifactId>compliance-context</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
