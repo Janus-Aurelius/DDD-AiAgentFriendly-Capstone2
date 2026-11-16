@@ -60,6 +60,10 @@ public class VariantJpaEntity {
     @Column(name = "digital_assets", columnDefinition = "jsonb", nullable = false)
     private List<DigitalAsset> digitalAssets = new ArrayList<>();
 
+    @jakarta.persistence.Enumerated(jakarta.persistence.EnumType.STRING)
+    @Column(name = "availability_status", nullable = false, length = 50)
+    private com.retail.pim.catalog.domain.enums.VariantAvailabilityStatus availabilityStatus = com.retail.pim.catalog.domain.enums.VariantAvailabilityStatus.AVAILABLE;
+
     @Column(name = "is_active", nullable = false)
     private boolean active = true;
 
@@ -142,6 +146,14 @@ public class VariantJpaEntity {
 
     public void setDigitalAssets(List<DigitalAsset> digitalAssets) {
         this.digitalAssets = digitalAssets != null ? digitalAssets : new ArrayList<>();
+    }
+
+    public com.retail.pim.catalog.domain.enums.VariantAvailabilityStatus getAvailabilityStatus() {
+        return availabilityStatus;
+    }
+
+    public void setAvailabilityStatus(com.retail.pim.catalog.domain.enums.VariantAvailabilityStatus availabilityStatus) {
+        this.availabilityStatus = availabilityStatus;
     }
 
     public boolean isActive() {

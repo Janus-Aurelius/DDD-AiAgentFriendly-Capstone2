@@ -92,6 +92,8 @@ public class ProductEnrichmentController {
             ProductLifecycleState status,
             Map<String, String> attributes,
             List<VariantResponse> variants,
+            Map<String, Object> publishedSnapshot,
+            int revisionNumber,
             Long version,
             Instant createdAt,
             Instant updatedAt
@@ -105,6 +107,7 @@ public class ProductEnrichmentController {
             String currency,
             Dimensions dimensions,
             List<DigitalAsset> digitalAssets,
+            com.retail.pim.catalog.domain.enums.VariantAvailabilityStatus availabilityStatus,
             boolean active
     ) {}
 
@@ -197,6 +200,16 @@ public class ProductEnrichmentController {
     }
 
     /**
+     * Shadow Versioning: Starts an in-place draft revision on an already PUBLISHED product.
+     * Active e-commerce storefronts continue reading publishedSnapshot uninterrupted.
+     */
+    @PostMapping("/{id}/revision")
+    public ResponseEntity<ProductResponse> startRevision(@PathVariable UUID id) {
+        ProductFamily revising = lifecycleService.startDraftRevision(id);
+        return ResponseEntity.ok(toResponse(revising));
+    }
+
+    /**
      * Attaches a Variant (SKU) with physical dimensions and digital assets.
      */
     @PostMapping("/{id}/variants")
@@ -270,6 +283,7 @@ public class ProductEnrichmentController {
                         v.getCurrency(),
                         v.getDimensions(),
                         v.getDigitalAssets(),
+                        v.getAvailabilityStatus(),
                         v.isActive()
                 ))
                 .toList();
@@ -284,6 +298,8 @@ public class ProductEnrichmentController {
                 domain.getStatus(),
                 flatAttrs,
                 variantResponses,
+                domain.getPublishedSnapshot(),
+                domain.getRevisionNumber(),
                 domain.getVersion(),
                 domain.getCreatedAt(),
                 domain.getUpdatedAt()

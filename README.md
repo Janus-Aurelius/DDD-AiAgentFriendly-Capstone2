@@ -19,13 +19,13 @@ An enterprise-grade Product Information Management (PIM) platform built with **D
 │   │
 │   ├── shared-kernel/                    # COMMON DDD BUILDING BLOCKS
 │   │   ├── pom.xml
-│   │   └── src/main/java/com/pim/shared/
+│   │   └── src/main/java/com/retail/pim/shared/
 │   │       ├── domain/                   # Base classes: AggregateRoot, DomainEvent, Entity
 │   │       └── exceptions/               # Base DomainException, ResourceNotFoundException
 │   │
 │   ├── catalog-context/                  # CORE PIM DOMAIN (Hexagonal Architecture)
 │   │   ├── pom.xml
-│   │   └── src/main/java/com/pim/catalog/
+│   │   └── src/main/java/com/retail/pim/catalog/
 │   │       ├── domain/                   # PURE JAVA (No Spring, No DB annotations)
 │   │       │   ├── model/ProductFamily.java        # The Aggregate Root
 │   │       │   ├── model/ProductVariant.java       # Internal Entity (SKU)
@@ -90,6 +90,7 @@ An enterprise-grade Product Information Management (PIM) platform built with **D
 │       └── 02-enable-jsonb.sql           # Postgres JSONB, Outbox & Closure Table DDL
 │
 └── docs/
+    ├── codebase-state-and-progress-audit.md # Master state of the codebase, progress audit & roadmap
     ├── enterprise-cross-domain-audit.md  # Comprehensive 6-context architecture & gap audit
     ├── core-catalog-design-review.md     # Deep dive review of Core Catalog state machine
     ├── cross-context-sync-and-review.md  # Master sync & review notes across all 6 contexts

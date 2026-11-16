@@ -1,7 +1,7 @@
 # Enterprise Cross-Domain Architecture Audit & Gap Analysis
 
 > **Scope:** Complete Multi-Context Enterprise Architecture (Supplier, Core Catalog, Taxonomy, DAM, Localization, Syndication)  
-> **Status:** Strategic Architectural Audit & Remediation Blueprint  
+> **Status:** Strategic Architectural Audit & Remediation (All Remediations Implemented)  
 > **Objective:** Identify critical flaws, failure modes, race conditions, and structural gaps across domain models, implementations, and cross-boundary event choreography.
 
 ---
@@ -118,3 +118,20 @@
 |  8. Deploy Elasticsearch projection indices with field-masking for sub-10ms mobile PDP reads.  |
 +-------------------------------------------------------------------------------------------------+
 ```
+
+---
+
+## 6. Implementation Status of Audit Remediations
+
+| Remediation Item | Target Context | Status | Key Implementation Classes |
+| :--- | :--- | :---: | :--- |
+| **Claim-Check Buffer** | `syndication-context` | **DONE** | [`ProductReadModelProjector.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/application/projections/ProductReadModelProjector.java) (`pendingAssetBuffer`) |
+| **DRM Zombie Purge & Retraction** | `syndication-context` | **DONE** | [`SyndicationEventsListener.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/infrastructure/messaging/SyndicationEventsListener.java) (`handleAssetLicenseExpired`) |
+| **Transactional Outbox in DAM & Loc** | `dam-context`, `localization-context` | **DONE** | `DamOutboxService`, `DamOutboxPollingRelay`, `LocalizationOutboxService`, `LocalizationOutboxPollingRelay` |
+| **JPA Entities & Spring Data Repos** | `dam-context`, `localization-context` | **DONE** | `DigitalAssetJpaEntity`, `SpringDataDigitalAssetRepository`, `RegionalCatalogJpaEntity`, `SpringDataRegionalCatalogRepository` |
+| **Dynamic Region Rule Registry** | `localization-context` | **DONE** | [`RegionRuleRegistry.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/localization-context/src/main/java/com/retail/pim/localization/domain/service/RegionRuleRegistry.java) |
+| **Dynamic Channel Mapping per Category** | `syndication-context` | **DONE** | [`CategoryMappingTemplateRegistry.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/domain/service/CategoryMappingTemplateRegistry.java) |
+| **Field Projection Masks** | `syndication-context` | **DONE** | [`ChannelItemProjection.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/domain/model/ChannelItemProjection.java) (`SummaryProjection`, `DetailProjection`) |
+| **S3 Cleanup & Async Transcoding** | `dam-context` | **DONE** | `purgeAssetBinariesAsync` in `S3AssetStorageRepository`, `processUploadedAssetAsync` in `RenditionGenerationWorker` |
+| **DRM 24h Pre-Warning Event** | `dam-context` | **DONE** | [`AssetLicenseExpiringSoon.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/dam-context/src/main/java/com/retail/pim/dam/domain/events/AssetLicenseExpiringSoon.java), `DRMLicense.isExpiringWithin()` |
+| **Infrastructure Topology** | `infra/` | **DONE** | Kafka (KRaft) and MinIO added to [`docker-compose.yml`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/infra/docker-compose.yml) |

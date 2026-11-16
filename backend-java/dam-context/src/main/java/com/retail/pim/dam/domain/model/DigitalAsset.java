@@ -1,6 +1,7 @@
 package com.retail.pim.dam.domain.model;
 
 import com.retail.pim.dam.domain.events.AssetLicenseExpired;
+import com.retail.pim.dam.domain.events.AssetLicenseExpiringSoon;
 import com.retail.pim.dam.domain.events.AssetLinkedToProduct;
 import com.retail.pim.dam.domain.events.AssetUploaded;
 import com.retail.pim.dam.domain.valueobjects.AssetMetadata;
@@ -128,6 +129,22 @@ public class DigitalAsset extends AggregateRoot<UUID> {
             this.updatedAt = Instant.now();
 
             registerEvent(new AssetLicenseExpired(
+                    this.getId(),
+                    license.getLicenseHolder(),
+                    license.getExpirationDate(),
+                    new HashSet<>(this.linkedProductIds)
+            ));
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Checks if the asset license will expire soon (within pre-warning window) and registers warning event.
+     */
+    public boolean checkExpiringSoon(java.time.Duration window) {
+        if (license != null && this.active && license.isExpiringWithin(window)) {
+            registerEvent(new AssetLicenseExpiringSoon(
                     this.getId(),
                     license.getLicenseHolder(),
                     license.getExpirationDate(),

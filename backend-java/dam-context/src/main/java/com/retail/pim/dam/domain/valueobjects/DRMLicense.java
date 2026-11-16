@@ -35,6 +35,18 @@ public final class DRMLicense implements Serializable {
         return Instant.now().isAfter(expirationDate);
     }
 
+    /**
+     * Checks if the license is active but scheduled to expire within the given window (e.g. 24 hours).
+     * All timestamps are standardized to Instant (UTC).
+     */
+    public boolean isExpiringWithin(java.time.Duration window) {
+        if (expirationDate == null || isExpired()) {
+            return false;
+        }
+        Instant threshold = Instant.now().plus(window);
+        return expirationDate.isBefore(threshold) || expirationDate.equals(threshold);
+    }
+
     public String getLicenseHolder() {
         return licenseHolder;
     }

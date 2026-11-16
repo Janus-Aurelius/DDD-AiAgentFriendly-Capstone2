@@ -32,4 +32,26 @@ public class ElasticsearchProjectionRepository {
         String key = regionCode + ":" + sku;
         return Optional.ofNullable(searchIndex.get(key));
     }
+
+    /**
+     * Fast-path Mobile / Search query: Returns masked SummaryProjection (<1KB)
+     * preventing bandwidth and cache explosion.
+     */
+    public Optional<ChannelItemProjection.SummaryProjection> searchSummaryBySku(String regionCode, String sku) {
+        return searchBySku(regionCode, sku).map(ChannelItemProjection::toSummaryProjection);
+    }
+
+    /**
+     * Full Product Detail Page (PDP) query: Returns full DetailProjection.
+     */
+    public Optional<ChannelItemProjection.DetailProjection> searchDetailBySku(String regionCode, String sku) {
+        return searchBySku(regionCode, sku).map(ChannelItemProjection::toDetailProjection);
+    }
+
+    public java.util.List<ChannelItemProjection.SummaryProjection> searchSummariesByRegion(String regionCode) {
+        return searchIndex.values().stream()
+                .filter(p -> p.getRegionCode().equalsIgnoreCase(regionCode))
+                .map(ChannelItemProjection::toSummaryProjection)
+                .toList();
+    }
 }

@@ -64,24 +64,28 @@ public class SyndicationEventsListener {
             topics = "${kafka.topics.dam-events:dam.asset.events}",
             groupId = "${spring.kafka.consumer.group-id:pim-syndication-dam-consumer}"
     )
-    public void onDamAssetLinked(String message) {
+    public void onDamAssetEvent(String message) {
         try {
             JsonNode root = objectMapper.readTree(message);
-            if (!"AssetLinkedToProduct".equalsIgnoreCase(root.path("eventType").asText())) {
-                return;
+            String eventType = root.path("eventType").asText();
+
+            if ("AssetLinkedToProduct".equalsIgnoreCase(eventType)) {
+                String sku = root.path("sku").asText();
+                String assetId = root.path("assetId").asText();
+                boolean isPrimary = root.path("isPrimaryImage").asBoolean(true);
+                String imageUrl = "https://cdn.retail.com/assets/" + assetId + "/web.webp";
+
+                log.info("Syndication Listener: Catching AssetLinkedToProduct for SKU [{}]", sku);
+                projector.projectAssetLinked(sku, "US", imageUrl, isPrimary);
+
+            } else if ("AssetLicenseExpired".equalsIgnoreCase(eventType)) {
+                UUID assetId = UUID.fromString(root.path("assetId").asText());
+                log.warn("Syndication Listener: Alert! Received AssetLicenseExpired for asset [{}]. Purging from live feeds.", assetId);
+                projector.purgeExpiredAsset(assetId);
             }
 
-            String sku = root.path("sku").asText();
-            String assetId = root.path("assetId").asText();
-            boolean isPrimary = root.path("isPrimaryImage").asBoolean(true);
-            String imageUrl = "https://cdn.retail.com/assets/" + assetId + "/web.webp";
-
-            log.info("Syndication Listener: Catching AssetLinkedToProduct for SKU [{}]", sku);
-            // Ingest image into US projection by default
-            projector.projectAssetLinked(sku, "US", imageUrl, isPrimary);
-
         } catch (Exception e) {
-            log.error("Failed to process AssetLinkedToProduct event in Syndication", e);
+            log.error("Failed to process DAM event in Syndication: {}", message, e);
         }
     }
 

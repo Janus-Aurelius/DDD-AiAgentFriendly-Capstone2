@@ -71,6 +71,7 @@ Before starting Contexts 2 through 6, verify against this checklist:
 ---
 
 ## 4. Associated References & Detailed Specs
+- Master Codebase State & Progress Audit: [`docs/codebase-state-and-progress-audit.md`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/docs/codebase-state-and-progress-audit.md)
 - Enterprise Cross-Domain Architecture Audit: [`docs/enterprise-cross-domain-audit.md`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/docs/enterprise-cross-domain-audit.md)
 - Core Catalog Design & Gap Review: [`docs/core-catalog-design-review.md`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/docs/core-catalog-design-review.md)
 - Detailed Cross-Boundary Blueprint: [`docs/3. The Cross-Boundary Workflow_cross-boundary-workflow.md`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/docs/3.%20The%20Cross-Boundary%20Workflow_cross-boundary-workflow.md)

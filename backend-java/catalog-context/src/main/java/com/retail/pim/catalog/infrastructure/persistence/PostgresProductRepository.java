@@ -87,6 +87,8 @@ public class PostgresProductRepository implements ProductRepository {
         entity.setCategoryId(domain.getCategoryId());
         entity.setStatus(domain.getStatus());
         entity.setAttributes(domain.getAttributes());
+        entity.setPublishedSnapshot(domain.getPublishedSnapshot());
+        entity.setRevisionNumber(domain.getRevisionNumber());
         entity.setVersion(domain.getVersion());
         entity.setCreatedAt(domain.getCreatedAt() != null ? domain.getCreatedAt() : Instant.now());
         entity.setUpdatedAt(domain.getUpdatedAt() != null ? domain.getUpdatedAt() : Instant.now());
@@ -103,6 +105,7 @@ public class PostgresProductRepository implements ProductRepository {
             ve.setDimensions(v.getDimensions());
             ve.setAttributes(v.getAttributes());
             ve.setDigitalAssets(v.getDigitalAssets());
+            ve.setAvailabilityStatus(v.getAvailabilityStatus());
             ve.setActive(v.isActive());
             ve.setCreatedAt(v.getCreatedAt() != null ? v.getCreatedAt() : Instant.now());
             ve.setUpdatedAt(v.getUpdatedAt() != null ? v.getUpdatedAt() : Instant.now());
@@ -123,6 +126,8 @@ public class PostgresProductRepository implements ProductRepository {
                 entity.getCategoryId(),
                 entity.getStatus(),
                 entity.getAttributes(),
+                entity.getPublishedSnapshot(),
+                entity.getRevisionNumber(),
                 entity.getVersion()
         );
 
@@ -137,6 +142,7 @@ public class PostgresProductRepository implements ProductRepository {
                         ve.getDimensions(),
                         ve.getAttributes(),
                         ve.getDigitalAssets(),
+                        ve.getAvailabilityStatus(),
                         ve.isActive()
                 );
                 family.addVariant(variant);

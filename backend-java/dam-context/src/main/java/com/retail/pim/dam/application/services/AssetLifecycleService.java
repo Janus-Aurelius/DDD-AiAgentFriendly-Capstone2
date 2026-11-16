@@ -27,15 +27,18 @@ public class AssetLifecycleService {
     private final S3AssetStorageRepository s3Storage;
     private final RenditionGenerationWorker renditionWorker;
     private final DamEventPublisher eventPublisher;
+    private final com.retail.pim.dam.infrastructure.persistence.DamOutboxService outboxService;
 
     public AssetLifecycleService(DigitalAssetRepository assetRepository,
                                  S3AssetStorageRepository s3Storage,
                                  RenditionGenerationWorker renditionWorker,
-                                 DamEventPublisher eventPublisher) {
+                                 DamEventPublisher eventPublisher,
+                                 com.retail.pim.dam.infrastructure.persistence.DamOutboxService outboxService) {
         this.assetRepository = assetRepository;
         this.s3Storage = s3Storage;
         this.renditionWorker = renditionWorker;
         this.eventPublisher = eventPublisher;
+        this.outboxService = outboxService;
     }
 
     /**
@@ -57,14 +60,14 @@ public class AssetLifecycleService {
 
         DigitalAsset saved = assetRepository.save(asset);
 
-        // Publish domain events
+        // Stage domain events via Transactional Outbox
         for (DomainEvent event : asset.getDomainEvents()) {
-            eventPublisher.publish(event);
+            outboxService.saveEvent("DigitalAsset", asset.getId(), event);
         }
         asset.clearDomainEvents();
 
-        // Trigger asynchronous rendition generation
-        renditionWorker.processUploadedAsset(saved.getId(), command.rawBytes(), command.fileName());
+        // Trigger asynchronous serverless rendition generation
+        renditionWorker.processUploadedAssetAsync(saved.getId(), command.rawBytes(), command.fileName());
 
         return saved;
     }
@@ -80,14 +83,14 @@ public class AssetLifecycleService {
         assetRepository.save(asset);
 
         for (DomainEvent event : asset.getDomainEvents()) {
-            eventPublisher.publish(event);
+            outboxService.saveEvent("DigitalAsset", asset.getId(), event);
         }
         asset.clearDomainEvents();
     }
 
     /**
      * The Rule/Lock: Periodic DRM compliance scanner.
-     * If an image's DRM license expires, it deactivates the asset and emits AssetLicenseExpired.
+     * If an image's DRM license expires, it deactivates the asset and stages AssetLicenseExpired in the outbox.
      */
     @Scheduled(fixedRate = 60000) // Scan every minute in production
     public void evaluateDrmExpirations() {
@@ -96,9 +99,27 @@ public class AssetLifecycleService {
             boolean expired = asset.checkDrmExpiration();
             if (expired) {
                 assetRepository.save(asset);
-                log.warn("DAM DRM Compliance: Asset [{}] has EXPIRED. Broadcasting AssetLicenseExpired event.", asset.getId());
+                log.warn("DAM DRM Compliance: Asset [{}] has EXPIRED. Staging AssetLicenseExpired in outbox.", asset.getId());
                 for (DomainEvent event : asset.getDomainEvents()) {
-                    eventPublisher.publish(event);
+                    outboxService.saveEvent("DigitalAsset", asset.getId(), event);
+                }
+                asset.clearDomainEvents();
+            }
+        }
+    }
+
+    /**
+     * 24-Hour Pre-Warning Scanner: Detects active licenses expiring within the next 24 hours.
+     */
+    @Scheduled(fixedRate = 300000) // Scan every 5 minutes
+    public void evaluateDrmExpiringSoon() {
+        List<DigitalAsset> activeAssets = assetRepository.findActiveAssetsWithLicenses();
+        for (DigitalAsset asset : activeAssets) {
+            boolean expiringSoon = asset.checkExpiringSoon(java.time.Duration.ofHours(24));
+            if (expiringSoon) {
+                log.warn("DAM DRM Pre-Warning: Asset [{}] expiring within 24h. Emitting pre-warning event.", asset.getId());
+                for (DomainEvent event : asset.getDomainEvents()) {
+                    outboxService.saveEvent("DigitalAsset", asset.getId(), event);
                 }
                 asset.clearDomainEvents();
             }

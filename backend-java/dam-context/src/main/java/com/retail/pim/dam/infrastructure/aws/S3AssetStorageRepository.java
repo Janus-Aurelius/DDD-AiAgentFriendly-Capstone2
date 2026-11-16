@@ -33,4 +33,17 @@ public class S3AssetStorageRepository {
     public void deleteAsset(UUID assetId) {
         log.info("AWS S3: Deleting all objects under prefix [{}] from bucket [{}]", assetId, BUCKET_NAME);
     }
+
+    /**
+     * Asynchronous S3 deletion cleanup task:
+     * Purges raw binaries and all generated renditions to prevent orphaned multi-megabyte files in S3.
+     */
+    public java.util.concurrent.CompletableFuture<Void> purgeAssetBinariesAsync(UUID assetId, String rawS3Url, java.util.List<String> renditionUrls) {
+        return java.util.concurrent.CompletableFuture.runAsync(() -> {
+            log.info("AWS S3 Lifecycle: Purging raw binary [{}] and [{}] renditions for asset [{}]",
+                    rawS3Url, renditionUrls != null ? renditionUrls.size() : 0, assetId);
+            deleteAsset(assetId);
+            log.info("AWS S3 Lifecycle: Successfully purged all S3 storage objects for asset [{}]", assetId);
+        });
+    }
 }

@@ -78,6 +78,29 @@ public class JsonbConverters {
     }
 
     @Converter(autoApply = false)
+    public static class GenericMapConverter implements AttributeConverter<Map<String, Object>, String> {
+        @Override
+        public String convertToDatabaseColumn(Map<String, Object> attribute) {
+            if (attribute == null || attribute.isEmpty()) return null;
+            try {
+                return objectMapper.writeValueAsString(attribute);
+            } catch (JsonProcessingException e) {
+                throw new IllegalArgumentException("Error serializing snapshot map to JSONB", e);
+            }
+        }
+
+        @Override
+        public Map<String, Object> convertToEntityAttribute(String dbData) {
+            if (dbData == null || dbData.isBlank() || dbData.equals("{}")) return null;
+            try {
+                return objectMapper.readValue(dbData, new TypeReference<>() {});
+            } catch (IOException e) {
+                throw new IllegalArgumentException("Error deserializing JSONB snapshot to map", e);
+            }
+        }
+    }
+
+    @Converter(autoApply = false)
     public static class LocalizedDescriptionsConverter implements AttributeConverter<Map<String, String>, String> {
         @Override
         public String convertToDatabaseColumn(Map<String, String> attribute) {

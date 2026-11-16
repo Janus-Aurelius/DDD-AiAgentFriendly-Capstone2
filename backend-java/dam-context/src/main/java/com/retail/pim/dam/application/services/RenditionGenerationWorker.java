@@ -31,6 +31,21 @@ public class RenditionGenerationWorker {
     }
 
     /**
+     * Asynchronous Serverless/Worker Offloading Pipeline:
+     * Offloads heavy image compression from the application web request thread to an asynchronous worker pool,
+     * preventing CPU exhaustion and OOM errors during 80MB+ TIFF uploads.
+     */
+    public java.util.concurrent.CompletableFuture<Void> processUploadedAssetAsync(UUID assetId, byte[] rawBytes, String originalFileName) {
+        return java.util.concurrent.CompletableFuture.runAsync(() -> {
+            try {
+                processUploadedAsset(assetId, rawBytes, originalFileName);
+            } catch (Exception e) {
+                log.error("RenditionWorker: Asynchronous transcoding failure for asset [{}]", assetId, e);
+            }
+        });
+    }
+
+    /**
      * Simulates image processing pipeline:
      * 1. Extracts EXIF metadata
      * 2. Compresses raw image into channel-specific renditions

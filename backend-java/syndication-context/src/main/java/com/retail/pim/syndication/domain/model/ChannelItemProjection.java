@@ -124,4 +124,78 @@ public class ChannelItemProjection extends Entity<UUID> {
     public Instant getLastUpdated() {
         return lastUpdated;
     }
+
+    /**
+     * Summary Projection DTO:
+     * Lightweight payload designed for sub-5ms search result list views and mobile browse grids.
+     * Prevents multi-megabyte denormalized payload explosion.
+     */
+    public record SummaryProjection(
+            UUID id,
+            UUID globalProductId,
+            String sku,
+            String title,
+            BigDecimal price,
+            String currency,
+            String primaryImageUrl,
+            String categoryPath,
+            String regionCode
+    ) {}
+
+    /**
+     * Detail Projection DTO:
+     * Full Product Detail Page (PDP) payload containing all media renditions, rich HTML marketing blocks,
+     * and technical attribute specifications.
+     */
+    public record DetailProjection(
+            UUID id,
+            UUID globalProductId,
+            String sku,
+            String title,
+            String descriptionHtml,
+            String plainTextDescription,
+            String categoryPath,
+            BigDecimal price,
+            String currency,
+            String primaryImageUrl,
+            List<String> galleryImageUrls,
+            String regionCode,
+            boolean complianceCleared,
+            Map<String, Object> attributes,
+            Instant lastUpdated
+    ) {}
+
+    public SummaryProjection toSummaryProjection() {
+        return new SummaryProjection(
+                this.getId(),
+                this.globalProductId,
+                this.sku,
+                this.title,
+                this.price,
+                this.currency,
+                this.primaryImageUrl,
+                this.categoryPath,
+                this.regionCode
+        );
+    }
+
+    public DetailProjection toDetailProjection() {
+        return new DetailProjection(
+                this.getId(),
+                this.globalProductId,
+                this.sku,
+                this.title,
+                this.descriptionHtml,
+                this.plainTextDescription,
+                this.categoryPath,
+                this.price,
+                this.currency,
+                this.primaryImageUrl,
+                this.galleryImageUrls,
+                this.regionCode,
+                this.complianceCleared,
+                Collections.unmodifiableMap(this.flattenedAttributes),
+                this.lastUpdated
+        );
+    }
 }

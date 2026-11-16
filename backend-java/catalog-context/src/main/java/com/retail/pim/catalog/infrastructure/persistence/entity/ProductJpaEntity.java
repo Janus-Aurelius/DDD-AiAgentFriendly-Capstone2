@@ -57,6 +57,13 @@ public class ProductJpaEntity {
     @Column(name = "attributes", columnDefinition = "jsonb", nullable = false)
     private Map<String, AttributeValue> attributes = new HashMap<>();
 
+    @Convert(converter = JsonbConverters.GenericMapConverter.class)
+    @Column(name = "published_snapshot", columnDefinition = "jsonb")
+    private Map<String, Object> publishedSnapshot;
+
+    @Column(name = "revision_number", nullable = false)
+    private int revisionNumber = 1;
+
     @OneToMany(mappedBy = "productFamily", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     private List<VariantJpaEntity> variants = new ArrayList<>();
 
@@ -135,6 +142,22 @@ public class ProductJpaEntity {
 
     public void setAttributes(Map<String, AttributeValue> attributes) {
         this.attributes = attributes != null ? attributes : new HashMap<>();
+    }
+
+    public Map<String, Object> getPublishedSnapshot() {
+        return publishedSnapshot;
+    }
+
+    public void setPublishedSnapshot(Map<String, Object> publishedSnapshot) {
+        this.publishedSnapshot = publishedSnapshot;
+    }
+
+    public int getRevisionNumber() {
+        return revisionNumber;
+    }
+
+    public void setRevisionNumber(int revisionNumber) {
+        this.revisionNumber = revisionNumber;
     }
 
     public List<VariantJpaEntity> getVariants() {

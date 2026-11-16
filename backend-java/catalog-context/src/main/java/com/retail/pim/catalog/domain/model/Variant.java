@@ -1,5 +1,6 @@
 package com.retail.pim.catalog.domain.model;
 
+import com.retail.pim.catalog.domain.enums.VariantAvailabilityStatus;
 import com.retail.pim.catalog.domain.valueobjects.AttributeValue;
 import com.retail.pim.catalog.domain.valueobjects.DigitalAsset;
 import com.retail.pim.catalog.domain.valueobjects.Dimensions;
@@ -28,13 +29,14 @@ public class Variant extends Entity<UUID> {
     private Dimensions dimensions;
     private final Map<String, AttributeValue> attributes = new HashMap<>();
     private final List<DigitalAsset> digitalAssets = new ArrayList<>();
+    private VariantAvailabilityStatus availabilityStatus;
     private boolean active;
     private final Instant createdAt;
     private Instant updatedAt;
 
     public Variant(UUID id, String sku, String name, BigDecimal price, String currency,
                    Dimensions dimensions, Map<String, AttributeValue> attributes,
-                   List<DigitalAsset> digitalAssets, boolean active) {
+                   List<DigitalAsset> digitalAssets, VariantAvailabilityStatus availabilityStatus, boolean active) {
         super(id != null ? id : UUID.randomUUID());
 
         if (sku == null || sku.trim().isEmpty()) {
@@ -58,9 +60,17 @@ public class Variant extends Entity<UUID> {
         if (digitalAssets != null) {
             this.digitalAssets.addAll(digitalAssets);
         }
+        this.availabilityStatus = availabilityStatus != null ? availabilityStatus :
+                (hasWeightAndDimensions() && hasPrimaryImage() ? VariantAvailabilityStatus.AVAILABLE : VariantAvailabilityStatus.SKU_INCOMPLETE);
         this.active = active;
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
+    }
+
+    public Variant(UUID id, String sku, String name, BigDecimal price, String currency,
+                   Dimensions dimensions, Map<String, AttributeValue> attributes,
+                   List<DigitalAsset> digitalAssets, boolean active) {
+        this(id, sku, name, price, currency, dimensions, attributes, digitalAssets, null, active);
     }
 
     public boolean hasWeightAndDimensions() {
@@ -76,12 +86,30 @@ public class Variant extends Entity<UUID> {
         return digitalAssets.stream().anyMatch(DigitalAsset::isPrimaryImage);
     }
 
+    public boolean isPublishable() {
+        return active &&
+               availabilityStatus == VariantAvailabilityStatus.AVAILABLE &&
+               hasWeightAndDimensions() &&
+               hasPrimaryImage();
+    }
+
+    public void evaluateAvailability() {
+        if (this.availabilityStatus != VariantAvailabilityStatus.DISCONTINUED) {
+            if (hasWeightAndDimensions() && hasPrimaryImage()) {
+                this.availabilityStatus = VariantAvailabilityStatus.AVAILABLE;
+            } else {
+                this.availabilityStatus = VariantAvailabilityStatus.SKU_INCOMPLETE;
+            }
+            this.updatedAt = Instant.now();
+        }
+    }
+
     public void setDimensions(Dimensions dimensions) {
         if (dimensions == null) {
             throw new DomainException("Dimensions cannot be null");
         }
         this.dimensions = dimensions;
-        this.updatedAt = Instant.now();
+        evaluateAvailability();
     }
 
     public void addDigitalAsset(DigitalAsset asset) {
@@ -89,7 +117,6 @@ public class Variant extends Entity<UUID> {
             throw new DomainException("Digital asset cannot be null");
         }
         if (asset.isPrimaryImage()) {
-            // Unmark existing primary images to maintain at most one primary image
             for (int i = 0; i < digitalAssets.size(); i++) {
                 DigitalAsset current = digitalAssets.get(i);
                 if (current.isPrimaryImage()) {
@@ -98,14 +125,14 @@ public class Variant extends Entity<UUID> {
             }
         }
         this.digitalAssets.add(asset);
-        this.updatedAt = Instant.now();
+        evaluateAvailability();
     }
 
     public boolean removeDigitalAsset(UUID assetId) {
         if (assetId == null) return false;
         boolean removed = this.digitalAssets.removeIf(a -> a.getId().equals(assetId));
         if (removed) {
-            this.updatedAt = Instant.now();
+            evaluateAvailability();
         }
         return removed;
     }
@@ -129,9 +156,15 @@ public class Variant extends Entity<UUID> {
         this.updatedAt = Instant.now();
     }
 
+    public void markDiscontinued() {
+        this.availabilityStatus = VariantAvailabilityStatus.DISCONTINUED;
+        this.active = false;
+        this.updatedAt = Instant.now();
+    }
+
     public void activate() {
         this.active = true;
-        this.updatedAt = Instant.now();
+        evaluateAvailability();
     }
 
     public void deactivate() {
@@ -165,6 +198,10 @@ public class Variant extends Entity<UUID> {
 
     public List<DigitalAsset> getDigitalAssets() {
         return Collections.unmodifiableList(digitalAssets);
+    }
+
+    public VariantAvailabilityStatus getAvailabilityStatus() {
+        return availabilityStatus;
     }
 
     public boolean isActive() {

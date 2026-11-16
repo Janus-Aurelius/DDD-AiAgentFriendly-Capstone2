@@ -85,12 +85,14 @@ However, an exhaustive audit from both **Business Merchandising** and **Enterpri
 
 ---
 
-## 3. Remediation Roadmap
+## 3. Remediation Roadmap & Implementation Status
 
-| Priority | Area | Action Item |
-| :---: | :--- | :--- |
-| **High** | Infrastructure | Implement the Outbox Poller relay worker to forward pending outbox rows to Kafka. |
-| **High** | Messaging | Add an `idempotent_consumer` table to ensure safe Kafka re-delivery handling. |
-| **Medium** | Domain | Refactor `isElectronics()` compliance check into an extensible `ComplianceRulePolicy`. |
-| **Medium** | Business | Introduce SKU-level publication status so missing variant assets do not block entire families. |
-| **Low** | Architecture | Implement Shadow Versioning for live editing published products without taking down active listings. |
+| Priority | Area | Action Item | Implementation Status | Implemented Component |
+| :---: | :--- | :--- | :---: | :--- |
+| **High** | Infrastructure | Implement Outbox Poller relay worker to forward pending outbox rows to Kafka. | **Implemented** | [`OutboxPollingRelay.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/infrastructure/persistence/OutboxPollingRelay.java) with `SKIP LOCKED` batch processing. |
+| **High** | Messaging | Add `consumed_messages` table to ensure safe Kafka re-delivery handling. | **Implemented** | [`IdempotentConsumerGuard.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/infrastructure/messaging/IdempotentConsumerGuard.java) & `catalog.consumed_messages` table. |
+| **Medium** | Domain | Refactor `isElectronics()` compliance check into extensible `CategoryCompliancePolicy`. | **Implemented** | [`CategoryCompliancePolicy.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/compliance/CategoryCompliancePolicy.java) & [`CompositeCategoryCompliancePolicy.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/compliance/CompositeCategoryCompliancePolicy.java). |
+| **Medium** | Business | Introduce SKU-level publication status so missing variant assets do not block entire families. | **Implemented** | [`VariantAvailabilityStatus.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/enums/VariantAvailabilityStatus.java) & `publishableSkus` partial publishing in [`ProductFamily.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/model/ProductFamily.java). |
+| **Medium** | Integration | Handle vendor re-imports non-destructively. | **Implemented** | Supplier Delta Merging via `mergeSupplierUpdate(...)` in [`ProductLifecycleService.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/services/ProductLifecycleService.java). |
+| **Low** | Architecture | Implement Shadow Versioning for live editing published products without taking down active listings. | **Implemented** | `publishedSnapshot`, `revisionNumber`, and `startDraftRevision()` in [`ProductFamily.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/model/ProductFamily.java). |
+| **Low** | Concurrency | Automated retry on optimistic lock conflicts. | **Implemented** | `executeWithRetry(...)` with exponential backoff in [`ProductLifecycleService.java`](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/services/ProductLifecycleService.java). |

@@ -63,27 +63,31 @@ public class RegionalCatalogItem extends AggregateRoot<UUID> {
         }
         this.translations.put(block.getLocale(), block);
         this.updatedAt = Instant.now();
-
-        // Check if translations now satisfy regional requirements
-        evaluateReadiness();
     }
 
     /**
-     * Regional Rule Enforcement:
-     * - CA (Canada): Requires fr_CA with mandatory French safety warnings.
-     * - MX (Mexico): Requires es_MX translation block.
-     * - US: Requires en_US translation block.
+     * Dynamic Regional Rule Enforcement:
+     * Validates whether translations and legal warnings satisfy the provided RegionRule.
      */
-    public boolean evaluateReadiness() {
-        boolean compliant = switch (this.regionCode) {
-            case "CA" -> {
-                TranslationBlock fr = translations.get("fr_CA");
-                yield fr != null && fr.hasSafetyWarnings();
-            }
-            case "MX" -> translations.containsKey("es_MX");
-            case "US" -> translations.containsKey("en_US");
-            default -> !translations.isEmpty();
-        };
+    public boolean evaluateReadiness(com.retail.pim.localization.domain.model.RegionRule rule) {
+        boolean compliant;
+        if (rule != null) {
+            boolean hasAllLocales = rule.requiredLocales().isEmpty() ||
+                    rule.requiredLocales().stream().allMatch(translations::containsKey);
+            boolean satisfiesSafety = !rule.requiresSafetyWarnings() ||
+                    translations.values().stream().anyMatch(TranslationBlock::hasSafetyWarnings);
+            compliant = hasAllLocales && satisfiesSafety;
+        } else {
+            compliant = switch (this.regionCode) {
+                case "CA" -> {
+                    TranslationBlock fr = translations.get("fr_CA");
+                    yield fr != null && fr.hasSafetyWarnings();
+                }
+                case "MX" -> translations.containsKey("es_MX");
+                case "US" -> translations.containsKey("en_US");
+                default -> !translations.isEmpty();
+            };
+        }
 
         if (compliant && this.status == RegionalStatus.PENDING_TRANSLATION) {
             this.status = RegionalStatus.READY_FOR_REGION;
@@ -98,6 +102,21 @@ public class RegionalCatalogItem extends AggregateRoot<UUID> {
                     .collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().getRegionalValue()));
 
             registerEvent(new RegionalItemPublished(
+                    this.getId(),
+                    this.globalProductId,
+                    this.productCode,
+                    this.regionCode,
+                    primaryTitle,
+                    flatOverrides
+            ));
+            return true;
+        }
+        return false;
+    }
+
+    public boolean evaluateReadiness() {
+        return evaluateReadiness(null);
+    }
                     this.getId(),
                     this.globalProductId,
                     this.productCode,
