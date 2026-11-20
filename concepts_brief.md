@@ -2,163 +2,173 @@
 
 * **Author:** Thien An Nguyen
 * **Date:** 2026-11-17
+* **Version:** 2.1 (Multi-Lens Validated & Hardened)
 
 ## Overview
 
-The enterprise Product Information Management (PIM) platform governs the end-to-end lifecycle of product master data from supplier ingestion through AI enrichment, compliance verification, and multi-channel syndication. 
+The enterprise Product Information Management (PIM) platform governs the end-to-end lifecycle of product master data from supplier ingestion through AI enrichment, compliance verification, and multi-channel syndication.
 
-This document defines the refined domain boundaries, event contracts, bidirectional state machine transitions, error compensation mechanisms, and cross-context integration patterns with ERP, WMS, OMS, and Finance. High-velocity transactional inventory and sales operations are decoupled using CQRS and Event Sourcing composite read models, keeping the PIM aggregate authoritative for master metadata without incurring transactional lock contention.
+This document defines the domain boundaries, event contracts, bidirectional state machine transitions, error compensation mechanisms, and cross-context integration patterns with ERP, WMS, OMS, and Finance. High-velocity transactional inventory and sales operations are decoupled using CQRS and Event Sourcing composite read models, keeping the PIM aggregate authoritative for master metadata without incurring transactional lock contention.
 
 ---
 
-## Architectural Constraints, Invariants & Edge Cases
+## Analysis
 
-### 1. Granular Variant State Machine & Aggregate Invariants
-* **Two-Tier State Model (Global State vs. Scoped Availability Masks):**
-  - **Global Lifecycle State:** (`SKU_DRAFT`, `SKU_IN_REVIEW`, `SKU_ACTIVE`, `SKU_RESTRICTED`, `SKU_SUSPENDED`, `SKU_RECALLED_LOT_HOLD`, `SKU_DISCONTINUED`, `SKU_ARCHIVED`) determines whether the SKU is fundamentally viable across the enterprise.
-  - **Scoped Availability Masks:** Variants maintain localized maps: `ChannelStatusMap[channelId]` and `MarketComplianceMap[marketCode]`. If an individual marketplace (e.g., Amazon US) rejects a feed or a specific jurisdiction (e.g., California Prop 65 or EU chemical standards) issues a regional restriction, the variant remains globally `SKU_ACTIVE` while masking availability solely in the affected market or channel. Merchandising resolves metadata issues using a Shadow Working Revision (`workingVersion` vs. `publishedVersion`) without taking down compliant storefront channels.
-* **Guarded Finite State Machine (FSM) & Remediation Flows:**
-  - State transitions form a Guarded Finite State Machine rather than a cyclic graph without governance.
-  - Transitions from `SKU_SUSPENDED` or `SKU_RESTRICTED` back to `SKU_ACTIVE` require validation gates. Metadata remediation occurs on a Shadow Working Revision (`SKU_IN_REVIEW`), requiring the compliance engine to emit a fresh `ProductComplianceApprovedEvent` before `SKU_ACTIVE` status is restored.
-  - *Operational Hold Exception:* Precautionary warehouse holds (`SKU_RECALLED_LOT_HOLD`) transition directly back to `SKU_ACTIVE` upon consuming an authoritative `LotQuarantineCertifiedEvent` from WMS/Compliance, bypassing metadata re-authoring in `SKU_DRAFT`.
-  - Only `SKU_DISCONTINUED` and `SKU_ARCHIVED` act as terminal acyclic sinks.
-* **The "Hero Variant" Fallback:**
-  - A `ProductFamily` designates one canonical variant for storefront search thumbnails and category landing pages.
-  - If the canonical variant transitions to `SKU_RESTRICTED` or `SKU_SUSPENDED`, the `ProductFamily` executes an automated fallback promotion rule, designating the next compliant `SKU_ACTIVE` variant as the canonical representative.
-* **The "Last Variant Standing" Rule & Asymmetric Recovery via Suspension Sets:**
-  - A `ProductFamily` remains `PUBLISHED` on storefronts as long as at least one child variant remains `SKU_ACTIVE`.
-  - Both `ProductFamily` and Bundle aggregates maintain an `activeSuspensionReasons: Set<SuspensionReason>` (e.g., `NO_ACTIVE_VARIANTS`, `EXPLICIT_COMPLIANCE_HOLD`, `TRADEMARK_DISPUTE`, `COMPONENT_DEPENDENCY`).
-  - When active variants reach 0 (`activeVariantCount == 0`), the `ProductFamily` adds `NO_ACTIVE_VARIANTS` to `activeSuspensionReasons` and transitions to `SUSPENDED`.
-  - **Upward Recovery Rule:** When an individual variant is remediated and restored to `SKU_ACTIVE` (`activeVariantCount: 0 -> 1`), it removes `NO_ACTIVE_VARIANTS` from the set. The `ProductFamily` automatically restores to `PUBLISHED` if and only if `activeSuspensionReasons.isEmpty()`. This prevents automated variant recovery from prematurely clearing concurrent legal, trademark, or manual compliance holds.
-* **Composite Products (Bundles, Kits & Multipacks):**
-  - Retail catalogs contain virtual bundles and multipacks consisting of multiple physical component SKUs.
-  - When any component SKU transitions to `SKU_SUSPENDED` or `RECALLED`, an upward cascade adds `COMPONENT_DEPENDENCY` to the parent bundle's `activeSuspensionReasons` and transitions the bundle to `SKU_RESTRICTED`.
-  - When all component SKUs recover to `SKU_ACTIVE`, `COMPONENT_DEPENDENCY` is removed from the set. The parent bundle automatically restores to `SKU_ACTIVE` if and only if `activeSuspensionReasons.isEmpty()`.
-* **Terminal States (End-of-Life) & Tombstoning:**
-  - Terminal states (`SKU_DISCONTINUED`, `SKU_ARCHIVED`) and suspended parent families emit `ProductTombstonedEvent` / `VariantTombstonedEvent`.
-  - The CQRS read-model projector consumes tombstone events to evict the document from Elasticsearch and Redis caches, immediately removing it from storefront search while preserving historical master records in PIM for returns and financial audits.
-* **Identifier Immutability:**
-  - The human-readable SKU string becomes strictly immutable across all contexts once a variant exits `SKU_DRAFT`.
-  - Packaging, formulation, or barcode changes requiring a new GTIN must either map to the existing SKU via an internal 1:N barcode alias table or trigger a net-new SKU lifecycle. System-generated `VariantId` (UUID) remains the technical primary key.
+### 1. Inventive Contradictions & System Resolutions (TRIZ)
+* **Contradiction 1: Lot Recall Precision vs. Bounded Context Separation**
+  - *Conflict:* PIM must not track high-velocity warehouse lot/bin numbers, yet regulatory recalls require preventing contaminated items from reaching customers without indiscriminately halting sales of uncontaminated inventory across unaffected regional distribution centers.
+  - *Resolution:* Implement a Two-Stage Selective Quarantine pattern. At the physical layer, WMS/OMS immediately locks allocation against affected lot IDs, while the edge read-model decrements available-to-promise (ATP) inventory. The PIM global `SKU_RECALLED_LOT_HOLD` state is reserved exclusively for uncontained, single-lot, or systemic contamination events.
+* **Contradiction 2: Embargo Secrecy vs. Launch Thundering Herds**
+  - *Conflict:* Embargoed products must remain unsearchable until timestamp $T$, but indexing thousands of embargoed SKUs at timestamp $T$ triggers search cluster re-indexing spikes and syndication quota exhaustion.
+  - *Resolution:* Pre-warm composite read models to edge caches in a cryptographically gated dormant state evaluated against a timestamp predicate (`now() >= embargoUntil`). At timestamp $T$, scheduled timer events (`EmbargoLiftedEvent`) flip visibility flags across search gateways without bulk re-hydration.
+* **Contradiction 3: Monotonic Sequence Ordering vs. Buffer Deadlock**
+  - *Conflict:* Message consumers must enforce strict aggregate version ordering, but dropped intermediate messages can stall consumption partitions indefinitely.
+  - *Resolution:* Implement a sliding gap-hold buffer with a jittered 15-second TTL (`15s + rand(0, 5000ms)`). If missing intermediate events fail to arrive within the TTL window, the consumer executes an Authoritative State Re-hydration request (rate-limited via bulkhead) to fetch the latest composite snapshot directly from PIM/ERP/OMS and resumes with the new sequence pointer.
+* **Contradiction 4: Immediate Bundle Masking vs. Eventual Batch DB Cascades**
+  - *Conflict:* Storefronts must immediately block sales of bundles containing recalled components, but asynchronously chunking 5,000 bundle DB updates takes several seconds to minutes.
+  - *Resolution (TRIZ Inverse Resolution Gate):* Storefront edge projectors check a distributed Redis Set (`blacklisted_component_skus` via `SADD` / `SREM` / `SMISMEMBER`). If any `componentSku` in a bundle is present in the set, the bundle is instantly masked on the storefront with 0ms latency and 0% false positives, while the Batch Coordinator persists database bundle cascades in bounded 250-SKU chunks at leisure.
 
-### 2. Multi-Channel Feedback & Syndication Constraints
-* **Version-Pinned Channel Feedback (Anti-Thrashing):**
-  - Asynchronous `ChannelListingRejectedEvent` messages carry the exact `CatalogSnapshotVersion` or `CorrelationId` of the evaluated payload.
-  - `catalog-context` ignores rejection events for superseded versions, preventing stale callbacks from overwriting remediated product states.
-* **Transient vs. Terminal Rejection Filtering:**
-  - Syndication adapters distinguish between terminal domain rejections (e.g., character limit exceeded, missing country of origin) and transient infrastructure errors (HTTP 429, timeouts).
-  - Only terminal domain errors emit `ChannelListingRejectedEvent`. Transient errors route to syndication retry queues with exponential backoff and jitter.
-* **Recall QoS & Emergency Express Lane:**
-  - `ProductComplianceRevokedEvent` and `ProductLotRecallInitiatedEvent` route through a dedicated high-priority messaging topic (Quality of Service Express Lane) that preempts routine catalogue sync.
-* **Temporal Publishing (Embargoes vs. Street Dates):**
-  - **`embargoUntil` (Information Embargo):** Secret products; strictly withheld from search indexing and storefront displays until timestamp $T$.
-  - **`streetDate` (Commercial Release Date):** Product is visible on storefronts for "Pre-Order" / "Coming Soon", but fulfillment and shipping are locked until timestamp $T$.
-  - A scheduled timer service emits `EmbargoLiftedEvent` and `StreetDateReachedEvent` at timestamp $T$ to release held syndication feeds and read-model projections without database polling.
+### 2. Guarded Finite State Machine & Aggregate Invariants
+* **Two-Tier State Model:**
+  - *Family Lifecycle States:* `FAMILY_DRAFT`, `FAMILY_PUBLISHED`, `FAMILY_SUSPENDED`, `FAMILY_ARCHIVED`.
+  - *Variant Lifecycle States:* `SKU_DRAFT`, `SKU_IN_REVIEW`, `SKU_ACTIVE`, `SKU_RESTRICTED`, `SKU_SUSPENDED`, `SKU_RECALLED_LOT_HOLD`, `SKU_DISCONTINUED`, `SKU_ARCHIVED`.
+  - *Scoped Availability Masks:* Variants maintain localized maps (`ChannelStatusMap[channelId]`, `MarketComplianceMap[marketCode]`). Local channel rejections or regional compliance bans (e.g., California Prop 65) mask availability specifically in those channels or regions while preserving live status on healthy storefronts. Merchandising resolves metadata defects via a Shadow Working Revision (`workingVersion` vs. `publishedVersion`).
+* **Asymmetric Recovery & Concurrency Control on Suspension Sets:**
+  - `ProductFamily` and Bundle aggregates maintain an `activeSuspensionReasons: Set<SuspensionReason>`. Bundles additionally maintain `suspendedComponents: Set<SkuId>`.
+  - When active variants reach zero, the parent family transitions to `FAMILY_SUSPENDED` and adds `NO_ACTIVE_VARIANTS` to the set.
+  - Variant recovery removes `NO_ACTIVE_VARIANTS` from the set. The parent family restores to `FAMILY_PUBLISHED` if and only if `activeSuspensionReasons.isEmpty()`, preventing variant updates from clearing concurrent legal, trademark, or manual compliance holds.
+  - *Bundle Component Recovery:* When a component SKU recovers, its SKU ID is removed from `suspendedComponents` via `SREM`. The bundle removes `COMPONENT_DEPENDENCY` from `activeSuspensionReasons` if and only if `suspendedComponents.isEmpty()`.
+  - *Unified Concurrency Guarantee:* To eliminate ORM entity cache desynchronization across cross-family components, all state-modifying commands and cascade events route through the broker keyed by the target aggregate root ID (`partitionKey = targetFamilyOrBundleId`). This guarantees that concurrent component events targeting the same parent Bundle serialize on that bundle's partition. Database mutations enforce optimistic version checking (`UPDATE ... WHERE version = :expectedVersion`) with a 3-attempt exponential backoff (`10ms -> 50ms -> 200ms`).
+* **Hero Variant Fallback & URL Stability:**
+  - If a canonical display variant is restricted, an automated fallback designates the next compliant `SKU_ACTIVE` variant (sorted deterministically by `displayPriority ASC`, `isBestseller DESC`, `createdAt ASC`) as the storefront representative. Canonical URL slugs are decoupled from variant SKUs to prevent SEO volatility.
+* **Composite Bundle Restriction Cascades & Batching Thresholds:**
+  - Component SKU suspension cascades `COMPONENT_DEPENDENCY` to parent virtual bundles (restricted to single-level nesting depth = 1).
+  - *Threshold-Gated Fan-Out:*
+    - Low Cardinality ($\le 50$ parent bundles): Cascades execute inline, emitting individual `VariantRestrictedEvent` messages.
+    - High Cardinality ($> 50$ parent bundles): Sets transient flag `CASCADE_IN_PROGRESS` on parent aggregates and routes to the Batch Component Dependency Coordinator, which processes database state transitions in bounded chunks of 250 bundles per transaction and emits chunked `BatchComponentDependencySuspendedEvent` payloads (max 250 SKU IDs per message). Read-model projectors execute bulk `update_by_query` against `componentSkus`.
 
-### 3. Continuous Compliance & The Lot Recall Impedance Mismatch
-* **Precautionary Global SKU Suspension on Lot Recall:**
-  - PIM does not track physical warehouse lots or expiration dates (owned by WMS).
-  - When an emergency `ProductLotRecallInitiatedEvent` occurs, PIM executes a precautionary global SKU suspension to block further purchases, while WMS locates, quarantines, and purges the contaminated physical lot numbers.
-  - Authoritative `LotQuarantineCertifiedEvent` from WMS restores the SKU directly to `SKU_ACTIVE`.
-* **In-Flight Customer Order Interception:**
-  - The OMS context consumes `ProductComplianceRevokedEvent` and `ProductLotRecallInitiatedEvent` to immediately halt unfulfilled, in-flight customer orders currently being picked or packed in fulfillment centers.
-* **Jurisdictional Compliance Scoping:**
-  - Compliance policies and revocation events support jurisdictional scoping (`marketCode: EU | US_CA | GLOBAL`), updating `MarketComplianceMap` to restrict sales in non-compliant territories while preserving live status elsewhere.
-
-### 4. Cross-Context Identity & The Composite Read-Model
-* **Composite Read-Model Readiness Gate:**
-  - Storefront read models (Elasticsearch / Redis) ingest asynchronous out-of-order event fragments from PIM, ERP, and OMS.
-  - A SKU document remains dormant/unindexed until all three bounded contexts confirm baseline readiness:
+### 3. Cross-Context Architecture & Composite Edge Read Models
+* **Bounded Context Identity Separation:**
+  - The human-readable SKU string becomes strictly immutable across PIM, ERP, and WMS/OMS once exiting `SKU_DRAFT`. System-generated `VariantId` (UUID) serves as the technical primary key.
+* **Read-Model Readiness Gate:**
+  - Storefront read models (Elasticsearch / Redis) hold unindexed skeleton documents until three criteria are met:
     1. **PIM:** State == `SKU_ACTIVE` AND `now() >= embargoUntil`
-    2. **ERP:** `PriceInitialized == True` AND (`Price > 0` OR `allowZeroPricePromo == True` [supports Gift-with-Purchase, free samples, warranty parts])
-    3. **OMS:** `StockInitialized == True` (direct physical inventory for standard SKUs; derived $\min(\lfloor Stock_i / Qty_i \rfloor)$ for Virtual Bundles)
-* **Skeleton Upserts (Out-of-Order Ingestion):**
-  - If OMS stock events arrive before PIM master data publication, the read-model projector creates a hidden skeleton record holding the stock integer. Arrival of the PIM event enriches the skeleton and passes the readiness gate.
+    2. **ERP:** `PriceInitialized == True` AND (`Price > 0` OR `allowZeroPricePromo == True`)
+    3. **OMS:** `StockInitialized == True` (direct stock for standard SKUs; derived $\min(\lfloor Stock_i / Qty_i \rfloor)$ for Virtual Bundles)
+* **Partial Update Isolation & Two-Stage Skeleton TTL:**
+  - Document upserts utilize namespaced partial scripts (`pim.*`, `erp.*`, `oms.*`) with optimistic concurrency (`_seq_no` / `_primary_term`).
+  - *Orphan Governance:* Unindexed skeleton records carry a 48-hour Warning Threshold emitting batched `OrphanedSkeletonMismatchAlert` (grouped by vendor/batch to prevent alert fatigue) and a hard 7-Day Eviction TTL (604,800s). Redis evicts via native key TTL; Elasticsearch evicts via a scheduled worker executing `delete_by_query` on expired unindexed skeletons.
+* **Terminal State Tombstoning:**
+  - Terminal states (`SKU_DISCONTINUED`, `SKU_ARCHIVED`) emit `ProductTombstonedEvent`, instructing read-model projectors to purge search index records while retaining soft-deleted records in PIM for historical order audits.
 
-### 5. Finance, Tax & Accounting Temporal Constraints
-* **Temporal Versioning for Financial Attributes:**
-  - Financial, tax, and customs metadata (Tax Bands, HS Tariff Codes, Category Node assignments, Packaging Dimensions) must be event-sourced with `effectiveFrom` and `effectiveTo` timestamps.
-  - Destructive in-place overwrites are prohibited. Accounting audits historical logistics invoices and customer returns against the master metadata active on the exact transaction date $T$.
-* **Unit of Measure (UOM) Dimensional Hierarchy:**
-  - PIM explicitly models logistics dimensions and weights keyed by packaging hierarchy levels:
-    - `EACH` (Consumer unit, GTIN-12)
-    - `INNER_PACK` (e.g., Pack of 6)
-    - `MASTER_CARTON` (Case of 24, GTIN-14)
-    - `PALLET`
-  - Freight audit rules in Finance cross-check billed carrier weight against the specific UOM level billed, preventing false-positive invoice disputes.
-* **Cost Center and P&L Taxonomy Mapping:**
-  - Finance joins ERP sales units with PIM hierarchical category data to report profitability by taxonomy branch.
-* **Vendor Rebates and Co-Op Marketing Attribution:**
-  - PIM tracks SKU-to-campaign associations, allowing Finance to calculate and claim vendor co-op chargebacks.
+### 4. Master Data for Finance, Tax & Logistics
+* **Temporal Versioning (`effectiveFrom` / `effectiveTo`):**
+  - Financial metadata (Tax Bands, HS Tariff Codes, Category Node assignments, Packaging Dimensions) is event-sourced with timestamps. Accounting audits past carrier invoices and customer returns against the state active on transaction date $T$.
+* **Unit of Measure (UOM) Hierarchy:**
+  - PIM models dimensions per packaging level (`EACH`, `INNER_PACK`, `MASTER_CARTON`, `PALLET`). Base tier `EACH` is universally required, while outer packaging tiers are conditionally required for palletized physical goods.
+* **Cost Center & Vendor Rebate Attribution:**
+  - Finance maps ERP sales units against PIM taxonomy branches and tracks SKU-to-campaign associations for co-op marketing chargebacks.
 
-### 6. Event Resilience & Choreography Mechanics
-* **Consumer Idempotency & Monotonic Version Ordering with TTL Fallback:**
-  - Guaranteed-delivery event brokers exhibit at-least-once delivery and out-of-order message arrival across partitions.
-  - All domain events carry a monotonically increasing `aggregateVersion` and a unique `eventId`.
-  - Downstream consumers enforce strict three-way sequence handling:
-    1. `Event.aggregateVersion <= Consumer.lastProcessedVersion`: Silently discard and ACK immediately (duplicate or superseded state).
-    2. `Event.aggregateVersion == Consumer.lastProcessedVersion + 1`: Process event immediately and increment consumer sequence pointer.
-    3. `Event.aggregateVersion > Consumer.lastProcessedVersion + 1`: Buffer in a short-lived gap-hold queue with a strict TTL (after which the consumer triggers an authoritative state snapshot fetch or routes to dead-letter queue) awaiting missing intermediate events.
-* **Transactional Outbox Pattern:**
-  - State mutations in `catalog-context`, `compliance-context`, and `dam-context` are committed atomically with outbound event records using the Transactional Outbox pattern (`FOR UPDATE SKIP LOCKED` poller or CDC), ensuring zero phantom events or missed notifications.
+### 5. Event Choreography, QoS & The Granular 3-Zone PONR Contract
+* **Three-Way Monotonic Sequence Handling:**
+  - `Event.version <= lastProcessedVersion`: Discard and ACK immediately.
+  - `Event.version == lastProcessedVersion + 1`: Process immediately and increment pointer.
+  - `Event.version > lastProcessedVersion + 1`: Buffer in gap-hold queue (TTL = 15s + jitter) with fallback to bulkhead-governed authoritative state snapshot re-hydration.
+* **QoS Express Lane & Granular Line-Item PONR Interception:**
+  - Recall and compliance revocation events route through a dedicated high-priority messaging topic.
+  - In-flight orders evaluate PONR at the **`FulfillmentPackage` / `OrderLine`** level (not aggregate order level) anchored at the `CarrierManifestCommitted` scan:
+    1. **Zone 1: Pre-PONR (`ORDER_PLACED` through `PACKED_AWAITING_MANIFEST`):** OMS halts picking/packing, routes picked units to physical quarantine, and triggers immediate payment authorization void (or refund if already captured).
+    2. **Zone 2: Post-PONR In-Transit (`CARRIER_MANIFESTED` through `OUT_FOR_DELIVERY`):**
+       - *Value-Gated Intercept with Safety Override:* If `ItemValue < $25.00` AND `recallSeverity != CLASS_1_CRITICAL_SAFETY`, OMS bypasses carrier intercept and immediately triggers Zone 3 customer notification and refund. Class 1 safety recalls force carrier intercept regardless of unit price.
+       - *Standard Intercept:* OMS emits `CarrierDeliveryInterceptRequestedEvent` to carrier APIs and marks line items `RECALL_INTERCEPT_PENDING`.
+       - *Webhook Race Guard:* If carrier webhooks emit `CarrierDeliveredEvent` while in `RECALL_INTERCEPT_PENDING`, the state machine auto-escalates immediately to Zone 3.
+    3. **Zone 3: Post-Delivery / Intercept Failed (`DELIVERED` or Carrier Intercept Rejected):** Emits `PostDeliveryRecallNoticeTriggeredEvent` to dispatch regulatory safety recall notices (email, SMS, physical letter) with disposal instructions and unconditional refund.
+* **Transactional Outbox:**
+  - Contexts execute local database commits and outbox record inserts atomically (`FOR UPDATE SKIP LOCKED` poller or CDC) to prevent phantom or missed event emissions.
+
+---
+
+## 6. Enforced Operational Thresholds & System Constants
+
+| Parameter | Enforced Value | Architectural Purpose |
+| :--- | :--- | :--- |
+| **`BUNDLE_FANOUT_THRESHOLD`** | `50 bundles` | Switches cascade mode from inline events to the Batch Coordinator. |
+| **`BUNDLE_BATCH_CHUNK_SIZE`** | `250 SKU IDs` | Bounds DB lock duration and keeps Kafka payloads `< 64KB`. |
+| **`GAP_HOLD_BUFFER_TTL`** | `15s + rand(0, 5s)` | Jittered buffer wait before fallback snapshot re-hydration. |
+| **`SKELETON_WARNING_THRESHOLD`** | `48 hours` | Triggers aggregated `OrphanedSkeletonMismatchAlert` for unenriched skeletons. |
+| **`SKELETON_HARD_EVICTION_TTL`** | `7 days` | Eviction window: native Redis TTL + scheduled ES `delete_by_query`. |
+| **`OPTIMISTIC_LOCK_RETRIES`** | `3 attempts` | Backoff schedule (`10ms, 50ms, 200ms`) on version conflicts. |
+| **`IDEMPOTENCY_KEY_TTL`** | `7 days` | Redis deduplication key TTL; database versions remain permanent authority. |
+| **`VALUE_INTERCEPT_MIN_FLOOR`**| `$25.00` | Minimum item value for Zone 2 carrier intercept (bypassed on `CLASS_1_CRITICAL_SAFETY`). |
 
 ---
 
 ## Goals vs. Non-Goals
 
 * **In-Scope Goals:**
-  - Implement a Guarded Finite State Machine (FSM) enforcing verified remediation loops and distinct terminal sinks (`SKU_DISCONTINUED`, `SKU_ARCHIVED`).
-  - Declare and enforce all eight global variant lifecycle states: `SKU_DRAFT`, `SKU_IN_REVIEW`, `SKU_ACTIVE`, `SKU_RESTRICTED`, `SKU_SUSPENDED`, `SKU_RECALLED_LOT_HOLD`, `SKU_DISCONTINUED`, `SKU_ARCHIVED`.
-  - Implement the Two-Tier State Model: Global Lifecycle State paired with Scoped Availability Masks (`ChannelStatusMap`, `MarketComplianceMap`).
-  - Implement the "Hero Variant" fallback rule when a canonical variant is restricted.
-  - Implement the "Last Variant Standing" rule with upward recovery gated by `activeSuspensionReasons.isEmpty()`.
-  - Implement bundle/kit restriction and auto-recovery cascades based on component dependencies using suspension reason sets.
-  - Distinguish between transient channel infrastructure errors and terminal catalog data errors in syndication feedback.
-  - Implement version-pinned channel feedback to eliminate race-condition state thrashing.
-  - Build a high-priority QoS Express Lane for compliance recalls and legal takedowns.
-  - Define jurisdictional compliance scoping for regional regulatory bans.
-  - Implement wall-clock event scheduling for `embargoUntil` and `streetDate`.
-  - Implement the Composite Read-Model Readiness Gate (`SKU_ACTIVE`, `PriceInitialized`, `StockInitialized`) with support for zero-price promotional items and derived bundle stock.
-  - Enforce consumer idempotency guards and strict three-way monotonic version ordering with TTL fallback across all listeners.
-  - Define UOM (Unit of Measure) hierarchy constraints (`EACH`, `INNER_PACK`, `MASTER_CARTON`, `PALLET`) as a prerequisite for `SKU_ACTIVE` state and ERP/WMS ingestion.
-  - Implement temporal versioning (`effectiveFrom` / `effectiveTo`) for financial and logistical master data changes.
+  - Implement a Guarded Finite State Machine with all eight declared global variant lifecycle states.
+  - Implement the Two-Tier State Model with scoped availability masks (`ChannelStatusMap`, `MarketComplianceMap`).
+  - Implement the "Hero Variant" fallback rule with deterministic tie-breaking and decoupled canonical URLs.
+  - Implement the "Last Variant Standing" rule with upward recovery gated by `activeSuspensionReasons.isEmpty()` and protected by `@Version` optimistic locking.
+  - Implement threshold-gated bundle restriction cascades ($\le 50$ inline; $> 50$ chunked in batches of 250 via `BatchComponentDependencySuspendedEvent`) paired with distributed Redis Set (`blacklisted_component_skus`) 0ms storefront inverse masking via `SMISMEMBER`.
+  - Distinguish between transient channel errors and terminal catalog errors with version-pinned feedback.
+  - Build a high-priority QoS Express Lane for recalls, paired with the 3-Zone Line-Item OMS Point-of-No-Return (PONR) interception protocol with `CLASS_1_CRITICAL_SAFETY` override.
+  - Implement wall-clock event scheduling and dormant pre-warming for `embargoUntil` and `streetDate`.
+  - Implement the Composite Read-Model Readiness Gate (`SKU_ACTIVE`, `PriceInitialized`, `StockInitialized`) with aggregated 48h warning alerts and 7-day skeleton TTL eviction.
+  - Enforce consumer idempotency guards and monotonic version ordering with jittered 15s TTL snapshot re-hydration.
+  - Define UOM packaging hierarchies with conditionally mandatory pallet tiers.
+  - Implement temporal versioning (`effectiveFrom` / `effectiveTo`) for financial and logistical attributes.
   - Standardize SKU as the immutable universal key across PIM, ERP, and WMS/OMS.
-  - Emit tombstone events on terminal states to evict read models from search/storefront indexes.
+  - Route cross-aggregate cascade commands keyed by target aggregate ID (`partitionKey = targetFamilyOrBundleId`).
+  - Emit tombstone events on terminal states to purge read models from search indexes.
 * **Out-of-Scope Non-Goals:**
-  - Tracking physical Lot/Batch granularity inside PIM (PIM operates strictly at the SKU abstraction; Lot/Expiry tracking remains in WMS/ERP).
-  - Real-time warehouse bin counting or order transaction processing inside PIM (owned by WMS/OMS).
-  - General ledger, COGS accounting, and accounts payable inside PIM (owned by ERP).
+  - Physical Lot/Batch tracking inside PIM (owned exclusively by WMS/ERP).
+  - Real-time warehouse bin allocation or sales transaction processing inside PIM (owned by WMS/OMS).
+  - General ledger and accounts payable accounting inside PIM (owned by ERP).
   - Re-enrichment loop controls and AI agent throttling (deferred as saved work for the Python AI agent phase).
   - Immediate implementation of distributed Saga coordinator infrastructure (deferred to event governance phase).
 
 ---
 
-## Saved Work / Deferred Scope
+## Alternatives Weighed
 
-* **AI Re-Enrichment Loop Controls:** Throttling, causation tracking (`actorType: AI_AGENT`), and loop guards between Catalog and Python AI service are deferred until the AI agent integration phase. All subsequent architectural documentation must preserve this distinction.
+* **Alternative 1: Absorbing Inventory & Sales into Catalog Aggregate**
+  - *Decision:* Rejected by author. High-velocity stock updates cause severe database lock contention, invalidate cache snapshots, and violate bounded context separation.
+* **Alternative 2: Global Family Demotion on Any Variant Defect**
+  - *Decision:* Rejected by author. Pulling an entire product family when only one regional or physical variant is non-compliant causes unwarranted commercial disruption.
+* **Alternative 3: In-Place Overwriting of Financial Attributes**
+  - *Decision:* Rejected by author. Destructive attribute overwrites prevent accounting from auditing historical shipping invoices against historical dimensional weight.
+* **Alternative 4: Tracking Warehouse Lots inside PIM**
+  - *Decision:* Rejected by author. Lot tracking requires physical warehouse location knowledge, expiry date monitoring, and bin picking coordinates, which belong exclusively to WMS/OMS.
+* **Alternative 5: Modeling State Progression as a DAG**
+  - *Decision:* Rejected by author. Cyclic remediation loops between active, restricted, and review states invalidate DAG constraints; state transitions must be modeled as a Guarded Finite State Machine.
+* **Alternative 6: Single Scalar Suspension Reason**
+  - *Decision:* Rejected by author. A single scalar field allows automatic child variant recovery to inadvertently overwrite concurrent legal, trademark, or manual compliance holds.
+* **Alternative 7: Indefinite Gap-Hold Buffering for Out-of-Order Events**
+  - *Decision:* Rejected by review lenses. Buffering indefinitely on missing sequence numbers stalls consumer partitions if an intermediate event is dropped; a 15s TTL with authoritative snapshot re-hydration is required.
+* **Alternative 8: Unbounded Single-Event or Unchunked Bundle Cascades**
+  - *Decision:* Rejected by review lenses. Firing thousands of individual events overwhelms Kafka partitions, while updating thousands of bundles in a single transaction causes DB lock contention; threshold-gated chunking ($> 50$ bundles chunked at 250 per event) balances throughput and isolation.
+* **Alternative 9: Probabilistic Bloom Filter for Component Blacklisting**
+  - *Decision:* Rejected by author. Standard Bloom Filters do not support `SREM` deletion upon component recovery and introduce probabilistic false positives that randomly mask compliant bundles; a native Redis Set provides exact $O(1)$ operations with zero false positives.
 
 ---
 
-## Alternatives Weighed
+## Resolved Reviewer Objections & Risk Mitigations
 
-* **Alternative 1: Absorbing Inventory & Sales into Catalog Aggregate (Rejected)**
-  - *Reason for Rejection:* Rejected by author. High-velocity stock updates cause severe database lock contention, invalidate cache snapshots, and violate bounded context separation.
-* **Alternative 2: Global Family Demotion on Any Variant Defect (Rejected)**
-  - *Reason for Rejection:* Rejected by author. Pulling an entire product family when only one regional or physical variant is non-compliant causes unwarranted commercial disruption.
-* **Alternative 3: In-Place Overwriting of Financial Attributes (Rejected)**
-  - *Reason for Rejection:* Rejected by author. Destructive attribute overwrites prevent accounting from auditing historical shipping invoices against historical dimensional weight.
-* **Alternative 4: Tracking Warehouse Lots inside PIM (Rejected)**
-  - *Reason for Rejection:* Rejected by author. Lot tracking requires physical warehouse location knowledge, expiry date monitoring, and bin picking coordinates, which belong exclusively to WMS/OMS.
-* **Alternative 5: Modeling State Progression as a DAG (Rejected)**
-  - *Reason for Rejection:* Rejected by author. Cyclic remediation loops between active, restricted, and review states invalidate DAG constraints; state transitions must be modeled as a Guarded Finite State Machine.
-* **Alternative 6: Single Scalar Suspension Reason (Rejected)**
-  - *Reason for Rejection:* Rejected by author. A single scalar field allows automatic child variant recovery to inadvertently overwrite concurrent legal, trademark, or manual compliance holds.
+1. **High-Cardinality Bundle Cascade Storms (`egm-zoom-out` & `egm-structural`) — RESOLVED:**
+   - *Mitigation:* Enforced in Section 2 and Section 6. Component cascades exceeding `BUNDLE_FANOUT_THRESHOLD` (50) are routed through the Batch Component Dependency Coordinator and emitted in bounded chunks of 250 SKU IDs via `BatchComponentDependencySuspendedEvent`. Storefront edge projectors check a distributed Redis Set (`blacklisted_component_skus` via `SMISMEMBER`) for 0ms immediate inverse masking with zero false positives.
+2. **In-Flight Order "Point of No Return" (`egm-zoom-out`) — RESOLVED:**
+   - *Mitigation:* Enforced in Section 5. The PONR boundary is evaluated per `FulfillmentPackage` / `OrderLine` at the `CarrierManifestCommitted` scan: Zone 1 Pre-PONR warehouse cancellation, Zone 2 Post-PONR transit intercept (governed by `$25.00` value floor with mandatory override for `CLASS_1_CRITICAL_SAFETY` and delivery-race auto-escalation), and Zone 3 Post-Delivery safety outreach.
+3. **Concurrency on Suspension Sets & Skeleton Storage Leaks (`egm-codebase-details`) — RESOLVED:**
+   - *Mitigation:* Enforced in Section 2 and Section 3. Cascade events serialize by target aggregate root (`partitionKey = targetFamilyOrBundleId`) and are guarded by conditional optimistic updates (`WHERE version = :expectedVersion`). Redis evicts skeletons via native TTL, while an index maintenance worker purges Elasticsearch skeletons matching `readinessStatus == 'UNINDEXED_SKELETON' AND createdAt < now - 7d`.
+4. **Upward Recovery Asymmetry for Bundles (`egm-structural`) — RESOLVED:**
+   - *Mitigation:* Bundles maintain `suspendedComponents: Set<SkuId>`. When a component SKU recovers, its ID is removed from `suspendedComponents` via `SREM`. The bundle only clears `COMPONENT_DEPENDENCY` from `activeSuspensionReasons` when `suspendedComponents.isEmpty()`.
 
 ---
 
 ## Key Decisions & Staging for Next Steps
 
-1. **Phase 1: Guarded FSM & Two-Tier Availability Engine:** Implement all 8 declared global states, Two-Tier availability masks (`ChannelStatusMap`, `MarketComplianceMap`), "Hero Variant" fallback, "Last Variant Standing" with `activeSuspensionReasons: Set<SuspensionReason>`, and bundle cascade rules.
-2. **Phase 2: Continuous Compliance & Recall Ingestion:** Implement listeners in `catalog-context` and `oms-context` for compliance revocation and emergency lot recalls driving global SKU suspensions; establish the QoS Express Lane and operational `LotQuarantineCertifiedEvent` recovery.
-3. **Phase 3: Omnichannel Feedback & Temporal Publishing:** Implement transient vs. terminal error classification, version-pinned feedback ingestion in `syndication-context`, temporal wall-clock scheduling for `embargoUntil` / `streetDate`, and index tombstoning.
-4. **Phase 4: Financial Master Data & CQRS Read-Model Projection:** Implement event-sourced financial attributes with `effectiveFrom` / `effectiveTo` timestamps, multi-tier UOM dimensional models, and the Composite Read-Model Readiness Gate supporting Skeleton Upserts, zero-price promotional SKUs, and monotonic version ordering with TTL fallback.
+1. **Phase 1: Guarded FSM & Two-Tier Availability Engine:** Implement all 8 declared global states, Two-Tier availability masks (`ChannelStatusMap`, `MarketComplianceMap`), "Hero Variant" fallback, "Last Variant Standing" with `@Version`-guarded `activeSuspensionReasons: Set<SuspensionReason>`, bundle `suspendedComponents: Set<SkuId>`, target-keyed partition routing (`partitionKey = targetFamilyOrBundleId`), and threshold-gated chunked bundle cascades (50 threshold / 250 chunk size) with distributed Redis Set inverse masking (`SMISMEMBER`).
+2. **Phase 2: Continuous Compliance & 3-Zone Line-Item PONR Recall Ingestion:** Implement listeners in `catalog-context` and `oms-context` for compliance revocation, Two-Stage Selective Quarantine, QoS Express Lane, and the 3-Zone Line-Item Point-of-No-Return order interception protocol with `CLASS_1_CRITICAL_SAFETY` override.
+3. **Phase 3: Omnichannel Feedback & Temporal Publishing:** Implement transient vs. terminal error classification, version-pinned feedback ingestion in `syndication-context`, dormant pre-warming and wall-clock scheduling for `embargoUntil` / `streetDate`, and index tombstoning.
+4. **Phase 4: Financial Master Data & CQRS Read-Model Projection:** Implement event-sourced financial attributes with `effectiveFrom` / `effectiveTo` timestamps, multi-tier UOM dimensional models, and the Composite Read-Model Readiness Gate supporting Skeleton Upserts (aggregated 48h alert / 7d TTL via Redis TTL and ES `delete_by_query`) and jittered 15s TTL authoritative snapshot re-hydration.
