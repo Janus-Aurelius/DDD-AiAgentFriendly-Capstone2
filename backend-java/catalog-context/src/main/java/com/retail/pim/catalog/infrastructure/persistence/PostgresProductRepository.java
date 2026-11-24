@@ -8,6 +8,8 @@ import com.retail.pim.catalog.infrastructure.persistence.entity.ProductJpaEntity
 import com.retail.pim.catalog.infrastructure.persistence.entity.VariantJpaEntity;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
@@ -45,6 +47,16 @@ public class PostgresProductRepository implements ProductRepository {
     @Override
     public Optional<ProductFamily> findByCode(String code) {
         return jpaRepository.findByCode(code.toUpperCase()).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<ProductFamily> findBySku(String sku) {
+        return jpaRepository.findBySku(sku).map(this::toDomain);
+    }
+
+    @Override
+    public Optional<ProductFamily> findByVariantId(UUID variantId) {
+        return jpaRepository.findByVariantId(variantId).map(this::toDomain);
     }
 
     @Override
@@ -107,6 +119,18 @@ public class PostgresProductRepository implements ProductRepository {
             ve.setDigitalAssets(v.getDigitalAssets());
             ve.setAvailabilityStatus(v.getAvailabilityStatus());
             ve.setActive(v.isActive());
+            ve.setLifecycleState(v.getLifecycleState());
+            ve.getActiveSuspensionReasons().addAll(v.getActiveSuspensionReasons());
+            ve.getChannelStatusMap().putAll(v.getChannelStatusMap());
+            ve.getMarketComplianceMap().putAll(v.getMarketComplianceMap());
+            ve.getSuspendedComponents().addAll(v.getSuspendedComponents());
+            ve.setEmbargoUntil(v.getEmbargoUntil());
+            ve.setStreetDate(v.getStreetDate());
+            ve.setBestseller(v.isBestseller());
+            ve.setDisplayPriority(v.getDisplayPriority());
+            ve.setPublishedVersion(v.getPublishedVersion());
+            ve.setGtin(v.getGtin());
+            ve.setFulfillmentMode(v.getFulfillmentMode());
             ve.setCreatedAt(v.getCreatedAt() != null ? v.getCreatedAt() : Instant.now());
             ve.setUpdatedAt(v.getUpdatedAt() != null ? v.getUpdatedAt() : Instant.now());
             variantEntities.add(ve);
@@ -145,6 +169,28 @@ public class PostgresProductRepository implements ProductRepository {
                         ve.getAvailabilityStatus(),
                         ve.isActive()
                 );
+                if (ve.getLifecycleState() != null) {
+                    variant.setLifecycleState(ve.getLifecycleState());
+                }
+                if (ve.getActiveSuspensionReasons() != null) {
+                    ve.getActiveSuspensionReasons().forEach(variant::addSuspensionReason);
+                }
+                if (ve.getChannelStatusMap() != null) {
+                    ve.getChannelStatusMap().forEach(variant::applyChannelStatus);
+                }
+                if (ve.getMarketComplianceMap() != null) {
+                    ve.getMarketComplianceMap().forEach((reg, reason) -> variant.applyRegionalMask(reg, com.retail.pim.catalog.domain.enums.RestrictionReason.valueOf(reason)));
+                }
+                if (ve.getSuspendedComponents() != null) {
+                    ve.getSuspendedComponents().forEach(variant::addSuspendedComponent);
+                }
+                variant.setEmbargoUntil(ve.getEmbargoUntil());
+                variant.setStreetDate(ve.getStreetDate());
+                variant.setBestseller(ve.isBestseller());
+                variant.setDisplayPriority(ve.getDisplayPriority());
+                variant.setPublishedVersion(ve.getPublishedVersion());
+                variant.setGtin(ve.getGtin());
+                variant.setFulfillmentMode(ve.getFulfillmentMode());
                 family.addVariant(variant);
             }
         }
@@ -158,5 +204,11 @@ public class PostgresProductRepository implements ProductRepository {
         Optional<ProductJpaEntity> findByCode(String code);
         boolean existsByCode(String code);
         List<ProductJpaEntity> findByStatus(ProductLifecycleState status, org.springframework.data.domain.Pageable pageable);
+
+        @Query("SELECT p FROM ProductJpaEntity p JOIN p.variants v WHERE v.sku = :sku")
+        Optional<ProductJpaEntity> findBySku(@Param("sku") String sku);
+
+        @Query("SELECT p FROM ProductJpaEntity p JOIN p.variants v WHERE v.id = :variantId")
+        Optional<ProductJpaEntity> findByVariantId(@Param("variantId") UUID variantId);
     }
 }

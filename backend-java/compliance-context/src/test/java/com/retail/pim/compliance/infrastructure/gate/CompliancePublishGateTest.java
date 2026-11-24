@@ -61,6 +61,20 @@ class CompliancePublishGateTest {
         }
 
         @Override
+        public Optional<ProductFamily> findBySku(String sku) {
+            return store.values().stream()
+                    .filter(p -> p.getVariants().stream().anyMatch(v -> v.getSku().equalsIgnoreCase(sku)))
+                    .findFirst();
+        }
+
+        @Override
+        public Optional<ProductFamily> findByVariantId(UUID variantId) {
+            return store.values().stream()
+                    .filter(p -> p.getVariants().stream().anyMatch(v -> v.getId().equals(variantId)))
+                    .findFirst();
+        }
+
+        @Override
         public List<ProductFamily> findByStatus(ProductLifecycleState status, int page, int size) {
             return store.values().stream().filter(p -> p.getStatus() == status).toList();
         }
@@ -92,7 +106,8 @@ class CompliancePublishGateTest {
                 productRepository,
                 null,         // outbox publisher optional
                 null,         // mock event publisher
-                publishGate   // wire the hard gate
+                publishGate,  // wire the hard gate
+                null          // compliance policy optional in unit test
         );
     }
 

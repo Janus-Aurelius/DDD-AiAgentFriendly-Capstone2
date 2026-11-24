@@ -117,18 +117,6 @@ public class RegionalCatalogItem extends AggregateRoot<UUID> {
     public boolean evaluateReadiness() {
         return evaluateReadiness(null);
     }
-                    this.getId(),
-                    this.globalProductId,
-                    this.productCode,
-                    this.regionCode,
-                    primaryTitle,
-                    flatOverrides
-            ));
-            return true;
-        }
-
-        return false;
-    }
 
     public void forcePublish() {
         if (!evaluateReadiness()) {

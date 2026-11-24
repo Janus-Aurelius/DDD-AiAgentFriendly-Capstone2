@@ -2,6 +2,7 @@ package com.retail.pim.catalog.infrastructure.persistence;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.retail.pim.catalog.application.ports.CatalogOutboxPort;
 import com.retail.pim.catalog.domain.events.ProductAttributesUpdatedEvent;
 import com.retail.pim.catalog.domain.events.ProductPublished;
 import com.retail.pim.shared.domain.DomainEvent;
@@ -23,7 +24,7 @@ import java.util.UUID;
  * in the same ACID transaction as the business entity mutation.
  */
 @Component
-public class OutboxEventPublisher {
+public class OutboxEventPublisher implements CatalogOutboxPort {
 
     private static final Logger log = LoggerFactory.getLogger(OutboxEventPublisher.class);
 

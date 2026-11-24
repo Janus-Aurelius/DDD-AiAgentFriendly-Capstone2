@@ -13,8 +13,10 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -207,6 +209,62 @@ public class JsonbConverters {
                         .toList();
             } catch (IOException e) {
                 throw new IllegalArgumentException("Error deserializing DigitalAssets from JSONB", e);
+            }
+        }
+    }
+
+    @Converter(autoApply = false)
+    public static class StringSetConverter implements AttributeConverter<Set<String>, String> {
+        @Override
+        public String convertToDatabaseColumn(Set<String> attribute) {
+            if (attribute == null || attribute.isEmpty()) return "{}";
+            try {
+                Map<String, Boolean> map = new HashMap<>();
+                for (String s : attribute) {
+                    map.put(s, true);
+                }
+                return objectMapper.writeValueAsString(map);
+            } catch (JsonProcessingException e) {
+                throw new IllegalArgumentException("Error serializing Set<String> to JSONB", e);
+            }
+        }
+
+        @Override
+        public Set<String> convertToEntityAttribute(String dbData) {
+            if (dbData == null || dbData.isBlank() || dbData.equals("{}") || dbData.equals("[]")) return new HashSet<>();
+            try {
+                if (dbData.trim().startsWith("[")) {
+                    List<String> list = objectMapper.readValue(dbData, new TypeReference<>() {});
+                    return new HashSet<>(list);
+                } else {
+                    Map<String, Object> map = objectMapper.readValue(dbData, new TypeReference<>() {});
+                    return new HashSet<>(map.keySet());
+                }
+            } catch (IOException e) {
+                throw new IllegalArgumentException("Error deserializing JSONB to Set<String>", e);
+            }
+        }
+    }
+
+    @Converter(autoApply = false)
+    public static class StringMapConverter implements AttributeConverter<Map<String, String>, String> {
+        @Override
+        public String convertToDatabaseColumn(Map<String, String> attribute) {
+            if (attribute == null || attribute.isEmpty()) return "{}";
+            try {
+                return objectMapper.writeValueAsString(attribute);
+            } catch (JsonProcessingException e) {
+                throw new IllegalArgumentException("Error serializing Map<String, String> to JSONB", e);
+            }
+        }
+
+        @Override
+        public Map<String, String> convertToEntityAttribute(String dbData) {
+            if (dbData == null || dbData.isBlank() || dbData.equals("{}")) return new HashMap<>();
+            try {
+                return objectMapper.readValue(dbData, new TypeReference<>() {});
+            } catch (IOException e) {
+                throw new IllegalArgumentException("Error deserializing JSONB to Map<String, String>", e);
             }
         }
     }

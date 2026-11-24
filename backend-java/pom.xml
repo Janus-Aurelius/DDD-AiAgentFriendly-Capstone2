@@ -29,6 +29,7 @@
         <module>localization-context</module>
         <module>syndication-context</module>
         <module>compliance-context</module>
+        <module>pim-bootstrap</module>
     </modules>
 
     <dependencyManagement>
@@ -76,6 +77,11 @@
             <dependency>
                 <groupId>com.retail.pim</groupId>
                 <artifactId>compliance-context</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.retail.pim</groupId>
+                <artifactId>pim-bootstrap</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

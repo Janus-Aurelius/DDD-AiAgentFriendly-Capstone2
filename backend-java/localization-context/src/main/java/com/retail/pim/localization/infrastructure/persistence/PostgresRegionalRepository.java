@@ -122,7 +122,7 @@ public class PostgresRegionalRepository implements RegionalCatalogRepository {
                 domain.addTranslationBlock(block);
             }
 
-            domain.clearEvents(); // Clear reconstituted domain events
+            domain.clearDomainEvents(); // Clear reconstituted domain events
             return domain;
         } catch (JsonProcessingException e) {
             log.error("Failed to map RegionalCatalogJpaEntity to domain", e);

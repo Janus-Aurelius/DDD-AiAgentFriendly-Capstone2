@@ -40,7 +40,7 @@ class ProductFamilyComplianceTest {
         assertEquals(ProductLifecycleState.ENRICHED, product.getStatus());
 
         // Approval must succeed non-blockingly without throwing DomainException for missing energy_rating
-        assertDoesNotThrow(product::approve);
+        assertDoesNotThrow(() -> product.approve());
         assertEquals(ProductLifecycleState.APPROVED, product.getStatus());
     }
 

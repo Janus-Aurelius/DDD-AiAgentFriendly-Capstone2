@@ -19,6 +19,10 @@ public interface ProductRepository {
 
     Optional<ProductFamily> findByCode(String code);
 
+    Optional<ProductFamily> findBySku(String sku);
+
+    Optional<ProductFamily> findByVariantId(UUID variantId);
+
     List<ProductFamily> findByStatus(ProductLifecycleState status, int page, int size);
 
     List<ProductFamily> findAll(int page, int size);

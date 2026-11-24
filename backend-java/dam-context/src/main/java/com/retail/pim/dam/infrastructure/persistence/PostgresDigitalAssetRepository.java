@@ -135,7 +135,7 @@ public class PostgresDigitalAssetRepository implements DigitalAssetRepository {
             for (UUID prodId : linkedProductIds) {
                 domain.linkToProduct(prodId, "SKU-LINKED", false);
             }
-            domain.clearEvents(); // Clear events loaded from DB
+            domain.clearDomainEvents(); // Clear events loaded from DB
 
             return domain;
         } catch (JsonProcessingException e) {

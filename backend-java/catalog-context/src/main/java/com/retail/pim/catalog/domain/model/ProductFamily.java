@@ -4,6 +4,7 @@ import com.retail.pim.catalog.domain.compliance.CategoryCompliancePolicy;
 import com.retail.pim.catalog.domain.compliance.ElectronicsCompliancePolicy;
 import com.retail.pim.catalog.domain.enums.ProductLifecycleState;
 import com.retail.pim.catalog.domain.enums.VariantAvailabilityStatus;
+import com.retail.pim.catalog.domain.enums.VariantLifecycleState;
 import com.retail.pim.catalog.domain.events.ProductAttributesUpdatedEvent;
 import com.retail.pim.catalog.domain.events.ProductPublished;
 import com.retail.pim.catalog.domain.valueobjects.AttributeValue;
@@ -13,9 +14,11 @@ import com.retail.pim.shared.exceptions.DomainException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -98,7 +101,7 @@ public class ProductFamily extends AggregateRoot<UUID> {
      */
     public static ProductFamily createDraft(String code, String name, String description,
                                             UUID categoryId, Map<String, AttributeValue> initialAttributes) {
-        return new ProductFamily(
+        ProductFamily product = new ProductFamily(
                 UUID.randomUUID(),
                 code,
                 name,
@@ -111,6 +114,15 @@ public class ProductFamily extends AggregateRoot<UUID> {
                 1,
                 0L
         );
+        if (initialAttributes != null && !initialAttributes.isEmpty()) {
+            product.registerEvent(new ProductAttributesUpdatedEvent(
+                    product.getId(),
+                    product.getVersion(),
+                    product.getCategoryId(),
+                    product.getAttributes()
+            ));
+        }
+        return product;
     }
 
     // ==========================================================================
@@ -131,8 +143,14 @@ public class ProductFamily extends AggregateRoot<UUID> {
         if (newLocalizedDescriptions != null) {
             this.localizedDescriptions.putAll(newLocalizedDescriptions);
         }
-        if (updatedAttributes != null) {
+        if (updatedAttributes != null && !updatedAttributes.isEmpty()) {
             this.attributes.putAll(updatedAttributes);
+            registerEvent(new ProductAttributesUpdatedEvent(
+                    this.getId(),
+                    this.version,
+                    this.categoryId,
+                    this.attributes
+            ));
         }
 
         // Strict Invariant: Localized marketing descriptions must exist and have non-empty content
@@ -190,7 +208,7 @@ public class ProductFamily extends AggregateRoot<UUID> {
     }
 
     public void approve() {
-        approve(new ElectronicsCompliancePolicy());
+        approve((CategoryCompliancePolicy) null);
     }
 
     /**
@@ -329,6 +347,12 @@ public class ProductFamily extends AggregateRoot<UUID> {
         }
         this.attributes.put(key.trim(), value);
         this.updatedAt = Instant.now();
+        registerEvent(new ProductAttributesUpdatedEvent(
+                this.getId(),
+                this.version,
+                this.categoryId,
+                this.attributes
+        ));
     }
 
     public void updateAttributes(Map<String, AttributeValue> newAttributes) {
@@ -401,6 +425,22 @@ public class ProductFamily extends AggregateRoot<UUID> {
 
     public Variant getVariantBySku(String sku) {
         return variants.get(sku);
+    }
+
+    /**
+     * Resolves the primary "Hero Variant" for storefront display.
+     * Evaluates regional availability masks (e.g. California Prop 65).
+     * Deterministically falls back to the highest priority active compliant variant.
+     */
+    public Optional<Variant> resolveHeroVariant(String marketLocale) {
+        return variants.values().stream()
+                .filter(v -> v.getLifecycleState() == VariantLifecycleState.SKU_ACTIVE || v.isActive())
+                .filter(v -> marketLocale == null || marketLocale.isBlank() || v.isRegionallyCompliant(marketLocale))
+                .sorted(Comparator
+                        .comparing(Variant::isBestseller).reversed()
+                        .thenComparing(Comparator.comparingInt(Variant::getDisplayPriority).reversed())
+                        .thenComparing(Variant::getSku))
+                .findFirst();
     }
 
     public Map<String, Object> getPublishedSnapshot() {
