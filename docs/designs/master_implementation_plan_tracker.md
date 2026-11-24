@@ -1,7 +1,7 @@
 # PIM Lifecycle State Machine & Event-Driven Resilience: Master Implementation Plan & Tracker
 
 * **Document Owner:** Thien An Nguyen
-* **Status:** In Progress (Active Implementation)
+* **Status:** All Slices Completed (100% Implemented & Verified)
 * **Design Specification Reference:** [pim-lifecycle-state-machine-and-resilience.md](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/docs/designs/pim-lifecycle-state-machine-and-resilience.md)
 * **Architecture:** Modular Monolith with In-Process Hexagonal Contexts & External Event-Driven Integration (Kafka KRaft)
 * **Last Updated:** 2026-11-24
@@ -21,8 +21,8 @@ This document serves as the **single source of truth** for tracking the engineer
 | **Slice 4** | **Omnichannel Feed Resilience & Anti-Thrashing (CUJ 4)** | **COMPLETED** | Sprint 3 | ChannelFeedbackAntiThrashingTest |
 | **Slice 5** | **Skeleton Upsert, Embargoed Launch & Virtual Stock Math (CUJ 5)** | **COMPLETED** | Sprint 3 | Storefront Readiness Gate & EmbargoLiftedEvent tests |
 | **Slice 6** | **"Last Variant Standing" & Concurrent Hold Protection (CUJ 6)** | **COMPLETED** | Sprint 4 | ProductFamilyStateMachineTest & SuspensionSetConcurrencyTest |
-| **Slice 7** | Financial Temporal Audit & UOM Logistics Reconciliation (CUJ 7) | **IN PROGRESS** | Sprint 4 | FinancialBiTemporalAuditTest & UOM prerequisite validators |
-| **Slice 8** | End-of-Life Tombstoning & Monotonic CQRS Read-Model Upsert (CUJ 8) | PENDING | Sprint 5 | CqrsMonotonicUpsertTest & ProductTombstoningTest |
+| **Slice 7** | **Financial Temporal Audit & UOM Logistics Reconciliation (CUJ 7)** | **COMPLETED** | Sprint 4 | FinancialBiTemporalAuditTest & UOM prerequisite validators |
+| **Slice 8** | **End-of-Life Tombstoning & Monotonic CQRS Read-Model Upsert (CUJ 8)** | **COMPLETED** | Sprint 5 | CqrsMonotonicUpsertTest, ProductTombstoningTest & CatalogQuarantineFacadeTest |
 
 ---
 
@@ -209,15 +209,44 @@ Establish database migration scripts, multi-schema Transactional Outbox entities
 
 ---
 
-### Slice 7: Financial Temporal Audit & UOM Logistics Reconciliation (CUJ 7) - IN PROGRESS
-* **Goal:** Bi-temporal historical auditing on financial & dimensional attributes and Base UOM (`EACH`) prerequisite validation.
-* **Target Files:**
-  - `catalog-context`: `FinancialAttributeHistoryJpaEntity.java`, `FinancialTemporalAuditRepository.java`, `UomPrerequisiteValidator.java`.
-  - Tests: `FinancialBiTemporalAuditTest.java`, `UomPrerequisiteValidatorTest.java`.
+### Slice 7: Financial Temporal Audit & UOM Logistics Reconciliation (CUJ 7) - COMPLETED
+* **Goal:** Bi-temporal historical auditing on financial & dimensional attributes across Unit-of-Measure (UOM) tiers and Base UOM (`EACH`) prerequisite validation.
+* **Delivered Components:**
+  - `catalog-context` Domain Model & Repository Port:
+    - [FinancialAttributeHistory.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/model/FinancialAttributeHistory.java): Bi-temporal entity tracking dimensions (`lengthCm`, `widthCm`, `heightCm`), `grossWeightKg`, `taxBand`, `customsHsnCode`, with temporal validity check `isEffectiveAt(Instant asOf)` and `closeEffectivePeriod(Instant closedAt)`.
+    - [FinancialTemporalAuditRepository.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/repository/FinancialTemporalAuditRepository.java): Domain repository port exposing `findHistoricalSnapshot`, `findCurrentActive`, and `findHistoryBySku`.
+  - `catalog-context` Persistence Layer:
+    - [FinancialAttributeHistoryJpaEntity.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/infrastructure/persistence/entity/FinancialAttributeHistoryJpaEntity.java): JPA entity mapping `catalog.financial_attribute_history`.
+    - [SpringDataFinancialAttributeHistoryJpaRepository.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/infrastructure/persistence/SpringDataFinancialAttributeHistoryJpaRepository.java): Spring Data JPA repository with temporal range queries (`effectiveFrom <= asOf AND effectiveTo > asOf`).
+    - [PostgresFinancialTemporalAuditRepository.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/infrastructure/persistence/PostgresFinancialTemporalAuditRepository.java): PostgreSQL adapter implementing `FinancialTemporalAuditRepository`.
+  - `catalog-context` Application Services & Presentation API:
+    - [UomPrerequisiteValidator.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/compliance/UomPrerequisiteValidator.java): Validates mandatory Base UOM tier (`EACH`), valid GTIN-12..14 barcode, and strictly positive physical dimensions before allowing variant transitions to `SKU_ACTIVE`.
+    - [FinancialMasterDataUseCase.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/services/FinancialMasterDataUseCase.java): Pure use-case interface for financial and logistics temporal auditing.
+    - [FinancialMasterDataService.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/services/FinancialMasterDataService.java): Orchestrates bi-temporal close-and-insert semantics (closing active record at `effectiveFrom` and inserting new record active until `INFINITY`).
+    - [FinancialMasterDataController.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/presentation/FinancialMasterDataController.java): REST endpoints (`GET /api/v1/catalog/skus/{sku}/financials?asOf={timestamp}&uomTier={tier}`, `PUT`, `POST`).
+  - Tests:
+    - [FinancialBiTemporalAuditTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/test/java/com/retail/pim/catalog/domain/model/FinancialBiTemporalAuditTest.java): CUJ 7 historical freight invoice audit (`asOf = 2026-10-25`), customer return tax reconciliation (`asOf = 2026-11-05`), current active state (`asOf = 2026-11-15`), and bi-temporal continuity invariants (2/2 passing).
+    - [UomPrerequisiteValidatorTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/test/java/com/retail/pim/catalog/application/compliance/UomPrerequisiteValidatorTest.java): Base UOM ("EACH") requirement, GTIN-12..14 barcode validation, and physical dimension verification (4/4 passing).
+    - [FinancialMasterDataControllerTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/test/java/com/retail/pim/catalog/presentation/FinancialMasterDataControllerTest.java): REST API unit tests for point-in-time `asOf` snapshot queries and attribute updates (2/2 passing).
+  - Verification: 9/9 modules `BUILD SUCCESS` (including 14/14 ArchUnit boundary checks).
 
-### Slice 8: End-of-Life Tombstoning & Monotonic CQRS Read-Model Upsert (CUJ 8)
-* **Goal:** Tombstoning decommissioned products and enforcing monotonic sequence updates on read-model projectors.
-* **Target Files:**
-  - `syndication-context`: `MonotonicVersionEnforcer.java`, `ProductTombstonedEventListener.java`.
-  - `catalog-context`: `ProductTombstonedEvent.java`.
-  - Tests: `CqrsMonotonicUpsertTest.java`, `ProductTombstoningTest.java`.
+---
+
+### Slice 8: End-of-Life Tombstoning & Monotonic CQRS Read-Model Upsert (CUJ 8) - COMPLETED
+* **Goal:** Tombstoning decommissioned products, purging edge search caches while retaining relational historical records for statutory warranty lookups, providing WMS quarantine certification exit bypass, and enforcing monotonic sequence updates on read-model projectors.
+* **Delivered Components:**
+  - `catalog-context` Domain Model & Events:
+    - [ProductTombstonedEvent.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/events/ProductTombstonedEvent.java): Domain event carrying `sku`, `familyId`, `reason`, and `occurredOn` emitted when variants are permanently decommissioned.
+  - `catalog-context` Application Services & Facades:
+    - [VariantDecommissionService.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/services/VariantDecommissionService.java): Implements `decommissionVariant` (`SKU_DISCONTINUED` transition, `ProductTombstonedEvent` dispatch, parent family "Last Variant Standing" evaluation) and `archiveVariant` (`SKU_ARCHIVED` transition after 7-year statutory warranty retention period).
+    - [CatalogQuarantineFacade.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/facades/CatalogQuarantineFacade.java): Application facade defining `certifyLotQuarantine(String sku, String lotNumber)` for WMS operational bypasses.
+    - [CatalogQuarantineFacadeImpl.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/facades/CatalogQuarantineFacadeImpl.java): Restores quarantined variants from `SKU_RECALLED_LOT_HOLD` back to `SKU_ACTIVE`, strips recall suspension reasons, and synchronizes parent family state.
+  - `syndication-context` Application Messaging & Projections:
+    - [ProductReadModelProjector.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/application/projections/ProductReadModelProjector.java): Extended with `purgeProjection(String sku)` to evict tombstoned SKUs from in-memory projection stores and `ElasticsearchProjectionRepository`.
+    - [ProductTombstonedEventListener.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/infrastructure/messaging/ProductTombstonedEventListener.java): Spring `@EventListener` consuming `ProductTombstonedEvent` and triggering immediate edge cache eviction.
+    - [ExternalMonotonicSequenceProjector.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/application/messaging/ExternalMonotonicSequenceProjector.java): Monotonic sequence enforcer for external Kafka streams (ERP pricing, OMS inventory) guaranteeing out-of-order stale versions are discarded (`incoming.version <= lastProcessedVersion`).
+  - Tests:
+    - [ProductTombstoningTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/test/java/com/retail/pim/catalog/application/services/ProductTombstoningTest.java): Variant decommissioning to `SKU_DISCONTINUED`, `ProductTombstonedEvent` emission, parent family auto-suspension on last variant decommissioning, archival to `SKU_ARCHIVED`, and relational persistence retention for warranty lookup (4/4 passing).
+    - [CatalogQuarantineFacadeTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/test/java/com/retail/pim/catalog/application/facades/CatalogQuarantineFacadeTest.java): WMS quarantine certification bypass restoring `SKU_RECALLED_LOT_HOLD` to `SKU_ACTIVE`, stripping recall suspension reasons, and invalid state guard tests (3/3 passing).
+    - [CqrsMonotonicUpsertTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/test/java/com/retail/pim/syndication/application/messaging/CqrsMonotonicUpsertTest.java): Monotonic guard verifying ERP pricing updates in order, stale message discards, OMS inventory version ordering, and `ProductTombstonedEvent` edge cache eviction (3/3 passing).
+  - Verification: 9/9 modules `BUILD SUCCESS` (including 14/14 ArchUnit boundary checks).

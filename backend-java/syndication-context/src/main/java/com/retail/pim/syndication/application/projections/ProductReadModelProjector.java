@@ -371,4 +371,20 @@ public class ProductReadModelProjector {
         String key = (regionCode != null ? regionCode : "US") + ":" + sku;
         return Optional.ofNullable(projectionStore.get(key));
     }
+
+    /**
+     * Purges a decommissioned/tombstoned SKU from in-memory cache and Elasticsearch store (CUJ 8).
+     */
+    public void purgeProjection(String sku) {
+        if (sku == null || sku.isBlank()) {
+            return;
+        }
+        for (Map.Entry<String, ChannelItemProjection> entry : projectionStore.entrySet()) {
+            if (entry.getValue().getSku().equalsIgnoreCase(sku.trim())) {
+                projectionStore.remove(entry.getKey());
+                esRepo.deleteBySku(entry.getValue().getRegionCode(), entry.getValue().getSku());
+                log.info("Projector: Purged tombstoned SKU [{}] from cache and Elasticsearch", sku);
+            }
+        }
+    }
 }
