@@ -1,8 +1,11 @@
 package com.retail.pim.catalog.domain.enums;
 
 /**
- * Product Lifecycle States managed strictly by the ProductFamily Aggregate Root.
+ * Product Lifecycle States managed by ProductFamily.
+ * @deprecated Legacy linear lifecycle state. Modern FSM architecture delegates to
+ * {@link FamilyLifecycleState} for aggregate family status and {@link VariantLifecycleState} for concrete SKUs.
  */
+@Deprecated
 public enum ProductLifecycleState {
     /**
      * The starting point. Accepts initial raw attributes, basic descriptions, and supplier data.

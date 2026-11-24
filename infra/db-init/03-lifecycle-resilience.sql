@@ -33,7 +33,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA localization GRANT ALL ON SEQUENCES TO pim_us
 
 -- Core Aggregate Alterations
 ALTER TABLE catalog.product_family
-    ADD COLUMN IF NOT EXISTS active_suspension_reasons JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ADD COLUMN IF NOT EXISTS active_suspension_reasons JSONB NOT NULL DEFAULT '{}'::jsonb,
+    ADD COLUMN IF NOT EXISTS lifecycle_state VARCHAR(50) NOT NULL DEFAULT 'FAMILY_DRAFT';
 
 ALTER TABLE catalog.product_variant
     ADD COLUMN IF NOT EXISTS lifecycle_state VARCHAR(50) NOT NULL DEFAULT 'SKU_DRAFT',

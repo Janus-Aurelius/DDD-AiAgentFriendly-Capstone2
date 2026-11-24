@@ -5,6 +5,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,8 +26,8 @@ public class ElasticsearchProjectionRepository {
     public void indexProductProjection(ChannelItemProjection projection) {
         String key = projection.getRegionCode() + ":" + projection.getSku();
         searchIndex.put(key, projection);
-        log.info("Elasticsearch: Indexed denormalized product document [{}] for region [{}] in <10ms cache",
-                projection.getSku(), projection.getRegionCode());
+        log.info("Elasticsearch: Indexed denormalized product document [{}] for region [{}] with readiness [{}]",
+                projection.getSku(), projection.getRegionCode(), projection.getReadinessStatus());
     }
 
     public Optional<ChannelItemProjection> searchBySku(String regionCode, String sku) {
@@ -48,10 +50,20 @@ public class ElasticsearchProjectionRepository {
         return searchBySku(regionCode, sku).map(ChannelItemProjection::toDetailProjection);
     }
 
-    public java.util.List<ChannelItemProjection.SummaryProjection> searchSummariesByRegion(String regionCode) {
+    public List<ChannelItemProjection.SummaryProjection> searchSummariesByRegion(String regionCode) {
         return searchIndex.values().stream()
                 .filter(p -> p.getRegionCode().equalsIgnoreCase(regionCode))
                 .map(ChannelItemProjection::toSummaryProjection)
                 .toList();
+    }
+
+    public List<ChannelItemProjection> getAllProjections() {
+        return new ArrayList<>(searchIndex.values());
+    }
+
+    public void deleteBySku(String regionCode, String sku) {
+        String key = regionCode + ":" + sku;
+        searchIndex.remove(key);
+        log.info("Elasticsearch: Deleted projection [{}] for region [{}]", sku, regionCode);
     }
 }

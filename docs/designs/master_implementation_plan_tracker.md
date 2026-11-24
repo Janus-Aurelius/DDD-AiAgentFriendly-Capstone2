@@ -18,10 +18,10 @@ This document serves as the **single source of truth** for tracking the engineer
 | **Slice 1** | **Working Revisions & Two-Tier California Masking (CUJ 1)** | **COMPLETED** | Sprint 1 | VariantRevisionTest & California Hero Fallback unit tests |
 | **Slice 2** | **Class 1 Safety Recall & Kafka QoS Event Dispatch (CUJ 2)** | **COMPLETED** | Sprint 2 | RecallQosDispatchTest & 3-Zone PONR integration tests |
 | **Slice 3** | **Bundle Component Masking & Sub-2ms Protection (CUJ 3)** | **COMPLETED** | Sprint 2 | BundleRedisMaskingTest & BatchCoordinatorChunkingTest |
-| **Slice 4** | Omnichannel Feed Resilience & Anti-Thrashing (CUJ 4) | **IN PROGRESS** | Sprint 3 | ChannelFeedbackAntiThrashingTest |
-| **Slice 5** | Skeleton Upsert, Embargoed Launch & Virtual Stock Math (CUJ 5) | PENDING | Sprint 3 | Storefront Readiness Gate & EmbargoLiftedEvent tests |
-| **Slice 6** | "Last Variant Standing" & Concurrent Hold Protection (CUJ 6) | PENDING | Sprint 4 | ProductFamilyStateMachineTest & SuspensionSetConcurrencyTest |
-| **Slice 7** | Financial Temporal Audit & UOM Logistics Reconciliation (CUJ 7) | PENDING | Sprint 4 | FinancialBiTemporalAuditTest & UOM prerequisite validators |
+| **Slice 4** | **Omnichannel Feed Resilience & Anti-Thrashing (CUJ 4)** | **COMPLETED** | Sprint 3 | ChannelFeedbackAntiThrashingTest |
+| **Slice 5** | **Skeleton Upsert, Embargoed Launch & Virtual Stock Math (CUJ 5)** | **COMPLETED** | Sprint 3 | Storefront Readiness Gate & EmbargoLiftedEvent tests |
+| **Slice 6** | **"Last Variant Standing" & Concurrent Hold Protection (CUJ 6)** | **COMPLETED** | Sprint 4 | ProductFamilyStateMachineTest & SuspensionSetConcurrencyTest |
+| **Slice 7** | Financial Temporal Audit & UOM Logistics Reconciliation (CUJ 7) | **IN PROGRESS** | Sprint 4 | FinancialBiTemporalAuditTest & UOM prerequisite validators |
 | **Slice 8** | End-of-Life Tombstoning & Monotonic CQRS Read-Model Upsert (CUJ 8) | PENDING | Sprint 5 | CqrsMonotonicUpsertTest & ProductTombstoningTest |
 
 ---
@@ -145,26 +145,71 @@ Establish database migration scripts, multi-schema Transactional Outbox entities
 
 ---
 
-### Slice 4: Omnichannel Feed Resilience & Anti-Thrashing (CUJ 4) - IN PROGRESS
+### Slice 4: Omnichannel Feed Resilience & Anti-Thrashing (CUJ 4) - COMPLETED
 * **Goal:** External marketplace feed feedback processing with strict version-pinning to prevent stale rejection thrashing.
-* **Target Files:**
-  - `syndication-context`: `MarketplaceFeedReportParser.java`, `ChannelStatusFeedbackService.java`.
-  - `catalog-context`: `CatalogChannelFeedbackFacade.java`, `ChannelStatusMap`.
-  - Tests: `ChannelFeedbackAntiThrashingTest.java`.
+* **Delivered Components:**
+  - `catalog-context` Public Facade & Application Service:
+    - [CatalogChannelFeedbackFacade.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/facades/CatalogChannelFeedbackFacade.java) & [CatalogChannelFeedbackFacadeImpl.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/facades/CatalogChannelFeedbackFacadeImpl.java): Public facade exposing `reportChannelRejection`, `reportChannelSuccess`, and `getChannelStatuses`.
+    - [ChannelFeedbackService.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/services/ChannelFeedbackService.java): Anti-thrashing validation engine comparing `evaluatedVersion` against live `publishedVersion` (stale rejections discarded without mutating state, valid rejections set `channelStatusMap[channel] = RESTRICTED`).
+  - `syndication-context` Feed Processing Engine:
+    - [AmazonFeedProcessingReportParser.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/application/services/AmazonFeedProcessingReportParser.java): Parses asynchronous Amazon SP-API report feeds, routes HTTP 429 rate limiting errors to retry queues without state churn, and dispatches terminal errors to `CatalogChannelFeedbackFacade`.
+  - Tests:
+    - [ChannelFeedbackServiceTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/test/java/com/retail/pim/catalog/application/services/ChannelFeedbackServiceTest.java): Anti-thrashing unit tests (5/5 passing).
+    - [AmazonFeedProcessingReportParserTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/test/java/com/retail/pim/syndication/application/services/AmazonFeedProcessingReportParserTest.java): SP-API report parsing and HTTP 429 backoff tests (2/2 passing).
+    - [ChannelFeedbackAntiThrashingTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/test/java/com/retail/pim/syndication/ChannelFeedbackAntiThrashingTest.java): CUJ 4 end-to-end integration test (Amazon rejects older v1 while v2 is publishing, discarded as stale; subsequent v2 rejection restricts Amazon while preserving Shopify).
+  - Verification: 9/9 modules `BUILD SUCCESS` (including 14/14 ArchUnit boundary checks).
 
-### Slice 5: Skeleton Upsert, Embargoed Launch & Virtual Stock Math (CUJ 5)
-* **Goal:** Multi-lifecycle readiness gate (PIM, ERP, OMS) for edge read model and embargo timestamp scheduling.
-* **Target Files:**
-  - `syndication-context`: `StorefrontReadinessGate.java`, `ElasticsearchCompositeProjector.java`, `EmbargoLiftedEvent.java`.
-  - Tests: `StorefrontReadinessGateTest.java`.
+---
 
-### Slice 6: "Last Variant Standing" & Concurrent Hold Protection (CUJ 6)
-* **Goal:** Dynamic family status demotion on zero active variants and PostgreSQL JSONB set concurrency for multiple suspension holds.
-* **Target Files:**
-  - `catalog-context`: `ProductFamily.java`, `ActiveSuspensionReasons`.
-  - Tests: `ProductFamilyStateMachineTest.java`, `SuspensionSetConcurrencyTest.java`.
+### Slice 5: Skeleton Upsert, Embargoed Launch & Virtual Stock Math (CUJ 5) - COMPLETED
+* **Goal:** Multi-lifecycle readiness gate (PIM, ERP, OMS) for edge read model, virtual bundle ATP math, and temporal embargo unmasking.
+* **Delivered Components:**
+  - `syndication-context` Domain Model & Event Primitives:
+    - [ReadinessStatus.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/domain/model/ReadinessStatus.java): `UNINDEXED_SKELETON` (dormant unindexed read-model state) and `READY_INDEXED` (all 3 lifecycles satisfied).
+    - [ChannelItemProjection.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/domain/model/ChannelItemProjection.java): Enhanced with `evaluateReadiness()` (PIM active, ERP price initialized, OMS stock initialized), dynamic discovery predicate `isDiscoverable(Instant asOf)` checking embargo schedules, monotonic sequence handlers (`applyPimMasterData`, `applyErpPrice`, `applyOmsStock`), and `createSkeleton()` factory.
+    - [EmbargoLiftedEvent.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/domain/events/EmbargoLiftedEvent.java): Implements `DomainEvent` emitted when embargo schedule reaches threshold $T$.
+  - `syndication-context` Application Services & Projector:
+    - [StorefrontReadinessGate.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/application/services/StorefrontReadinessGate.java): Gatekeeper verifying 3-lifecycle readiness and filtering storefront search queries by dynamic embargo timestamp predicate.
+    - [ProductReadModelProjector.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/application/projections/ProductReadModelProjector.java): Enhanced with `projectPimMasterData`, `projectErpPrice`, `projectOmsStock`, virtual bundle ATP calculation ($\min \lfloor Stock_i / Qty_i \rfloor$), and debounced write accumulator flusher (5-second window per bundle).
+    - [ElasticsearchProjectionRepository.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/main/java/com/retail/pim/syndication/infrastructure/database/ElasticsearchProjectionRepository.java): Extended with `getAllProjections()` and `deleteBySku()`.
+  - `pim-bootstrap` Schedulers & Operational Workers:
+    - [TemporalEmbargoScheduler.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/pim-bootstrap/src/main/java/com/retail/pim/bootstrap/schedulers/TemporalEmbargoScheduler.java): Scheduled poller identifying `READY_INDEXED` items whose `embargoUntil` has passed and publishing `EmbargoLiftedEvent` with deduplication caching.
+    - [StaleSkeletonAuditReporter.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/pim-bootstrap/src/main/java/com/retail/pim/bootstrap/workers/StaleSkeletonAuditReporter.java): Non-destructive weekly auditor reporting dormant unindexed skeletons older than 30 days for human merchandising review without destructive deletion.
+  - Tests:
+    - [StorefrontReadinessGateTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/test/java/com/retail/pim/syndication/application/projections/StorefrontReadinessGateTest.java): 3-lifecycle readiness gate, temporal embargo discovery, bundle ATP math, debounced write accumulator, and monotonic version guards (5/5 passing).
+    - [StorefrontReadinessGateIntegrationTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/syndication-context/src/test/java/com/retail/pim/syndication/StorefrontReadinessGateIntegrationTest.java): CUJ 5 smartphone launch with warehouse replenishment stock and ERP price arriving before PIM master data, unindexed skeleton verification, and discovery gating at timestamp $T$ (1/1 passing).
+    - [TemporalEmbargoSchedulerTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/pim-bootstrap/src/test/java/com/retail/pim/bootstrap/schedulers/TemporalEmbargoSchedulerTest.java): Embargo threshold lifting, exactly-once event emission, and skeleton exclusion tests (2/2 passing).
+    - [StaleSkeletonAuditReporterTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/pim-bootstrap/src/test/java/com/retail/pim/bootstrap/workers/StaleSkeletonAuditReporterTest.java): Non-destructive audit reporting of skeletons older than 30 days while preserving documents in storage (2/2 passing).
+  - Verification: All 9 reactor modules `BUILD SUCCESS` (0 failures, 0 errors, 14/14 ArchUnit tests passed).
 
-### Slice 7: Financial Temporal Audit & UOM Logistics Reconciliation (CUJ 7)
+---
+
+### Slice 6: "Last Variant Standing" & Concurrent Hold Protection (CUJ 6) - COMPLETED
+* **Goal:** Dynamic family status demotion on zero active variants ("Last Variant Standing" rule) and PostgreSQL JSONB set concurrency for multiple suspension holds.
+* **Delivered Components:**
+  - `catalog-context` Domain FSM & Aggregates:
+    - [FamilyLifecycleState.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/enums/FamilyLifecycleState.java): 4 states (`FAMILY_DRAFT`, `FAMILY_PUBLISHED`, `FAMILY_SUSPENDED`, `FAMILY_ARCHIVED`).
+    - [VariantLifecycleState.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/enums/VariantLifecycleState.java): Guarded FSM transitions (`canTransitionTo`) across all 8 variant states.
+    - [ProductFamily.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/model/ProductFamily.java): Added `activeSuspensionReasons` (`Set<String>`) and `lifecycleState` (`FamilyLifecycleState`). Implemented `applyHold()`, `liftHold()`, and `evaluateVariantCount()` enforcing the "Last Variant Standing" rule (auto-suspension with `NO_ACTIVE_VARIANTS` when active variants drop to 0, recovery when variants restore, ensuring concurrent administrative/legal holds prevent premature restoration).
+    - [ProductLifecycleState.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/domain/enums/ProductLifecycleState.java): Deprecated in favor of modern FSM architecture.
+  - `catalog-context` Persistence Layer:
+    - [03-lifecycle-resilience.sql](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/infra/db-init/03-lifecycle-resilience.sql): Added `lifecycle_state` column to `catalog.product_family`.
+    - [ProductJpaEntity.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/infrastructure/persistence/entity/ProductJpaEntity.java): Mapped `active_suspension_reasons` JSONB column with `JsonbConverters.StringSetConverter` and `lifecycle_state` enum column.
+    - [PostgresProductRepository.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/infrastructure/persistence/PostgresProductRepository.java): Deep domain <-> JPA conversion for `activeSuspensionReasons` and `lifecycleState`.
+  - `catalog-context` Application Services & Presentation API:
+    - [FamilyHoldUseCase.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/services/FamilyHoldUseCase.java): Pure use-case interface for hold management.
+    - [FamilyHoldManagementService.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/services/FamilyHoldManagementService.java): Implements `applyHold`, `liftHold`, and `getActiveHolds` with optimistic locking version verification.
+    - [VariantStateManagementService.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/application/services/VariantStateManagementService.java): Manages variant state transitions (`transitionVariantState`, `suspendVariant`, `restoreVariant`) and evaluates parent family "Last Variant Standing" state.
+    - [AdministrativeHoldController.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/main/java/com/retail/pim/catalog/presentation/AdministrativeHoldController.java): REST endpoints (`POST /api/v1/catalog/families/{id}/holds`, `DELETE /api/v1/catalog/families/{id}/holds/{reason}`, `GET /api/v1/catalog/families/{id}/holds`) supporting `If-Match` optimistic concurrency headers.
+  - Tests:
+    - [ProductFamilyStateMachineTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/test/java/com/retail/pim/catalog/domain/model/ProductFamilyStateMachineTest.java): "Last Variant Standing" auto-suspension on 0 variants, recovery on restoration, legal hold coexistence preventing premature recovery, and 8-state variant FSM guards (3/3 passing).
+    - [SuspensionSetConcurrencyTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/test/java/com/retail/pim/catalog/application/services/SuspensionSetConcurrencyTest.java): Multiple hold coexistence, optimistic lock version conflict protection, and variant state coordinator integration (3/3 passing).
+    - [AdministrativeHoldControllerTest.java](file:///home/annguyen/master_projects/DDD-AiAgentFriendly-Capstone2/backend-java/catalog-context/src/test/java/com/retail/pim/catalog/presentation/AdministrativeHoldControllerTest.java): REST API unit tests for applying and lifting holds with `If-Match` headers (3/3 passing).
+  - Verification: 9/9 modules `BUILD SUCCESS` (including 14/14 ArchUnit boundary checks).
+
+---
+
+### Slice 7: Financial Temporal Audit & UOM Logistics Reconciliation (CUJ 7) - IN PROGRESS
 * **Goal:** Bi-temporal historical auditing on financial & dimensional attributes and Base UOM (`EACH`) prerequisite validation.
 * **Target Files:**
   - `catalog-context`: `FinancialAttributeHistoryJpaEntity.java`, `FinancialTemporalAuditRepository.java`, `UomPrerequisiteValidator.java`.

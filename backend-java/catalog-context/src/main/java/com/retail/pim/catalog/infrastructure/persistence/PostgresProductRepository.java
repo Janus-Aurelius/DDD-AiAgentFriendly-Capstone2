@@ -98,6 +98,9 @@ public class PostgresProductRepository implements ProductRepository {
         entity.setLocalizedDescriptions(domain.getLocalizedDescriptions());
         entity.setCategoryId(domain.getCategoryId());
         entity.setStatus(domain.getStatus());
+        entity.getActiveSuspensionReasons().clear();
+        entity.getActiveSuspensionReasons().addAll(domain.getActiveSuspensionReasons());
+        entity.setLifecycleState(domain.getLifecycleState());
         entity.setAttributes(domain.getAttributes());
         entity.setPublishedSnapshot(domain.getPublishedSnapshot());
         entity.setRevisionNumber(domain.getRevisionNumber());
@@ -152,7 +155,9 @@ public class PostgresProductRepository implements ProductRepository {
                 entity.getAttributes(),
                 entity.getPublishedSnapshot(),
                 entity.getRevisionNumber(),
-                entity.getVersion()
+                entity.getVersion(),
+                entity.getActiveSuspensionReasons(),
+                entity.getLifecycleState()
         );
 
         if (entity.getVariants() != null) {

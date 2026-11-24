@@ -1,5 +1,6 @@
 package com.retail.pim.catalog.infrastructure.persistence.entity;
 
+import com.retail.pim.catalog.domain.enums.FamilyLifecycleState;
 import com.retail.pim.catalog.domain.enums.ProductLifecycleState;
 import com.retail.pim.catalog.domain.valueobjects.AttributeValue;
 import com.retail.pim.catalog.infrastructure.config.JsonbConverters;
@@ -18,8 +19,10 @@ import jakarta.persistence.Version;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -52,6 +55,14 @@ public class ProductJpaEntity {
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 50)
     private ProductLifecycleState status = ProductLifecycleState.DRAFT;
+
+    @Convert(converter = JsonbConverters.StringSetConverter.class)
+    @Column(name = "active_suspension_reasons", columnDefinition = "jsonb", nullable = false)
+    private Set<String> activeSuspensionReasons = new HashSet<>();
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "lifecycle_state", length = 50)
+    private FamilyLifecycleState lifecycleState = FamilyLifecycleState.FAMILY_DRAFT;
 
     @Convert(converter = JsonbConverters.AttributeMapConverter.class)
     @Column(name = "attributes", columnDefinition = "jsonb", nullable = false)
@@ -190,5 +201,21 @@ public class ProductJpaEntity {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Set<String> getActiveSuspensionReasons() {
+        return activeSuspensionReasons;
+    }
+
+    public void setActiveSuspensionReasons(Set<String> activeSuspensionReasons) {
+        this.activeSuspensionReasons = activeSuspensionReasons != null ? activeSuspensionReasons : new HashSet<>();
+    }
+
+    public FamilyLifecycleState getLifecycleState() {
+        return lifecycleState;
+    }
+
+    public void setLifecycleState(FamilyLifecycleState lifecycleState) {
+        this.lifecycleState = lifecycleState;
     }
 }

@@ -2,6 +2,7 @@ package com.retail.pim.catalog.domain.model;
 
 import com.retail.pim.catalog.domain.compliance.CategoryCompliancePolicy;
 import com.retail.pim.catalog.domain.compliance.ElectronicsCompliancePolicy;
+import com.retail.pim.catalog.domain.enums.FamilyLifecycleState;
 import com.retail.pim.catalog.domain.enums.ProductLifecycleState;
 import com.retail.pim.catalog.domain.enums.VariantAvailabilityStatus;
 import com.retail.pim.catalog.domain.enums.VariantLifecycleState;
@@ -16,22 +17,25 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
  * ProductFamily: The Core Catalog Aggregate Root.
  * Operates as an enterprise Finite State Machine governing the Product Lifecycle:
- * DRAFT -> ENRICHED -> APPROVED -> PUBLISHED.
+ * DRAFT -> ENRICHED -> APPROVED -> PUBLISHED, combined with FamilyLifecycleState (CUJ 6).
  *
  * Implements:
  * 1. Shadow Versioning: preserves live storefront publishedSnapshot during active draft revisions.
  * 2. Granular SKU Availability: supports partial publication of compliant variants.
  * 3. Decoupled Category Compliance Policies (Open-Closed Principle).
  * 4. Supplier Delta Merging: protects internal merchandising copy during vendor re-imports.
+ * 5. "Last Variant Standing" & Concurrent Suspension Holds (CUJ 6).
  *
  * Pure Java - zero framework, ORM, or database dependencies.
  */
@@ -46,6 +50,10 @@ public class ProductFamily extends AggregateRoot<UUID> {
     private final Map<String, AttributeValue> attributes = new HashMap<>();
     private final Map<String, Variant> variants = new HashMap<>();
 
+    // Multi-Hold & Lifecycle State (CUJ 6)
+    private final Set<String> activeSuspensionReasons = new HashSet<>();
+    private FamilyLifecycleState lifecycleState = FamilyLifecycleState.FAMILY_DRAFT;
+
     // Shadow Versioning fields
     private Map<String, Object> publishedSnapshot;
     private int revisionNumber;
@@ -55,13 +63,14 @@ public class ProductFamily extends AggregateRoot<UUID> {
     private Instant updatedAt;
 
     /**
-     * Reconstitution constructor (used by repository persistence adapter).
+     * Full reconstitution constructor (used by repository persistence adapter).
      */
     public ProductFamily(UUID id, String code, String name, String description,
                          Map<String, String> localizedDescriptions, UUID categoryId,
                          ProductLifecycleState status, Map<String, AttributeValue> attributes,
                          Map<String, Object> publishedSnapshot, int revisionNumber,
-                         Long version) {
+                         Long version, Set<String> activeSuspensionReasons,
+                         FamilyLifecycleState lifecycleState) {
         super(id != null ? id : UUID.randomUUID());
 
         if (code == null || code.trim().isEmpty()) {
@@ -85,8 +94,27 @@ public class ProductFamily extends AggregateRoot<UUID> {
         this.publishedSnapshot = publishedSnapshot;
         this.revisionNumber = revisionNumber > 0 ? revisionNumber : 1;
         this.version = version != null ? version : 0L;
+        if (activeSuspensionReasons != null) {
+            this.activeSuspensionReasons.addAll(activeSuspensionReasons);
+        }
+        if (lifecycleState != null) {
+            this.lifecycleState = lifecycleState;
+        } else {
+            this.lifecycleState = (this.status == ProductLifecycleState.PUBLISHED)
+                    ? FamilyLifecycleState.FAMILY_PUBLISHED
+                    : FamilyLifecycleState.FAMILY_DRAFT;
+        }
         this.createdAt = Instant.now();
         this.updatedAt = this.createdAt;
+    }
+
+    public ProductFamily(UUID id, String code, String name, String description,
+                         Map<String, String> localizedDescriptions, UUID categoryId,
+                         ProductLifecycleState status, Map<String, AttributeValue> attributes,
+                         Map<String, Object> publishedSnapshot, int revisionNumber,
+                         Long version) {
+        this(id, code, name, description, localizedDescriptions, categoryId, status, attributes,
+                publishedSnapshot, revisionNumber, version, null, null);
     }
 
     public ProductFamily(UUID id, String code, String name, String description,
@@ -236,6 +264,7 @@ public class ProductFamily extends AggregateRoot<UUID> {
         }
 
         this.status = ProductLifecycleState.PUBLISHED;
+        this.lifecycleState = FamilyLifecycleState.FAMILY_PUBLISHED;
         this.updatedAt = Instant.now();
 
         // Capture live snapshot for shadow versioning
@@ -461,5 +490,81 @@ public class ProductFamily extends AggregateRoot<UUID> {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    // ==========================================================================
+    // MULTI-HOLD CONCURRENCY & LAST VARIANT STANDING (CUJ 6)
+    // ==========================================================================
+
+    /**
+     * Applies an administrative hold to the Product Family.
+     * Transitions family to FAMILY_SUSPENDED while preserving existing holds in activeSuspensionReasons.
+     */
+    public void applyHold(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new DomainException("Suspension reason cannot be empty");
+        }
+        this.activeSuspensionReasons.add(reason.trim());
+        if (this.lifecycleState == FamilyLifecycleState.FAMILY_PUBLISHED) {
+            this.lifecycleState = FamilyLifecycleState.FAMILY_SUSPENDED;
+        }
+        this.updatedAt = Instant.now();
+    }
+
+    /**
+     * Lifts an administrative hold from the Product Family.
+     * Only restores to FAMILY_PUBLISHED if NO other suspension holds remain AND at least 1 active variant exists.
+     */
+    public void liftHold(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return;
+        }
+        this.activeSuspensionReasons.remove(reason.trim());
+        if (this.activeSuspensionReasons.isEmpty() && countActiveVariants() > 0) {
+            if (this.status == ProductLifecycleState.PUBLISHED || this.lifecycleState == FamilyLifecycleState.FAMILY_SUSPENDED) {
+                this.lifecycleState = FamilyLifecycleState.FAMILY_PUBLISHED;
+            }
+        }
+        this.updatedAt = Instant.now();
+    }
+
+    /**
+     * The "Last Variant Standing" Rule:
+     * When active variants drop to 0, automatically suspends family with reason NO_ACTIVE_VARIANTS.
+     * When variants recover (> 0), clears NO_ACTIVE_VARIANTS while respecting any other concurrent holds (e.g. TRADEMARK_DISPUTE).
+     */
+    public void evaluateVariantCount(int activeCount) {
+        if (activeCount == 0) {
+            this.activeSuspensionReasons.add("NO_ACTIVE_VARIANTS");
+            if (this.lifecycleState == FamilyLifecycleState.FAMILY_PUBLISHED) {
+                this.lifecycleState = FamilyLifecycleState.FAMILY_SUSPENDED;
+            }
+        } else {
+            this.activeSuspensionReasons.remove("NO_ACTIVE_VARIANTS");
+            if (this.activeSuspensionReasons.isEmpty() &&
+                (this.status == ProductLifecycleState.PUBLISHED || this.lifecycleState == FamilyLifecycleState.FAMILY_SUSPENDED)) {
+                this.lifecycleState = FamilyLifecycleState.FAMILY_PUBLISHED;
+            }
+        }
+        this.updatedAt = Instant.now();
+    }
+
+    public int countActiveVariants() {
+        return (int) variants.values().stream()
+                .filter(v -> v.getLifecycleState() == VariantLifecycleState.SKU_ACTIVE || v.isActive())
+                .count();
+    }
+
+    public Set<String> getActiveSuspensionReasons() {
+        return Collections.unmodifiableSet(activeSuspensionReasons);
+    }
+
+    public FamilyLifecycleState getLifecycleState() {
+        return lifecycleState;
+    }
+
+    public void setLifecycleState(FamilyLifecycleState lifecycleState) {
+        this.lifecycleState = lifecycleState;
+        this.updatedAt = Instant.now();
     }
 }
