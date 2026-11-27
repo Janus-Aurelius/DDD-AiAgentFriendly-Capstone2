@@ -204,16 +204,4 @@ public class PostgresProductRepository implements ProductRepository {
         family.clearDomainEvents();
         return family;
     }
-
-    public interface SpringDataProductFamilyJpaRepository extends JpaRepository<ProductJpaEntity, UUID> {
-        Optional<ProductJpaEntity> findByCode(String code);
-        boolean existsByCode(String code);
-        List<ProductJpaEntity> findByStatus(ProductLifecycleState status, org.springframework.data.domain.Pageable pageable);
-
-        @Query("SELECT p FROM ProductJpaEntity p JOIN p.variants v WHERE v.sku = :sku")
-        Optional<ProductJpaEntity> findBySku(@Param("sku") String sku);
-
-        @Query("SELECT p FROM ProductJpaEntity p JOIN p.variants v WHERE v.id = :variantId")
-        Optional<ProductJpaEntity> findByVariantId(@Param("variantId") UUID variantId);
-    }
 }

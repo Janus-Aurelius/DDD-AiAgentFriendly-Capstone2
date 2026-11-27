@@ -2,6 +2,7 @@ package com.retail.pim.syndication.infrastructure.redis;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -23,13 +24,18 @@ public class RedisBlacklistInitializer {
     private final JdbcTemplate jdbcTemplate;
     private final StringRedisTemplate redisTemplate;
 
-    public RedisBlacklistInitializer(JdbcTemplate jdbcTemplate, StringRedisTemplate redisTemplate) {
+    public RedisBlacklistInitializer(JdbcTemplate jdbcTemplate,
+                                     @Autowired(required = false) StringRedisTemplate redisTemplate) {
         this.jdbcTemplate = jdbcTemplate;
         this.redisTemplate = redisTemplate;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void initializeBlacklistOnStartup() {
+        if (redisTemplate == null) {
+            log.info("RedisBlacklistInitializer: StringRedisTemplate bean not present. Skipping Redis cold-start.");
+            return;
+        }
         try {
             log.info("Starting RedisBlacklistInitializer cold-start synchronization...");
             String sql = """

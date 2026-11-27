@@ -71,6 +71,7 @@ public class ProductReadModelProjector {
         this(esRepo, amazonClient, channelCatalogRepository, categoryTemplateRegistry, new StorefrontReadinessGate());
     }
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ProductReadModelProjector(ElasticsearchProjectionRepository esRepo,
                                      AmazonMarketplaceApiClient amazonClient,
                                      ChannelCatalogRepository channelCatalogRepository,

@@ -1,0 +1,30 @@
+# Standalone in-memory profile for local validation, demo, and zero-infrastructure bootstrap runs
+spring:
+  datasource:
+    url: jdbc:h2:mem:pim_db;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;INIT=CREATE SCHEMA IF NOT EXISTS catalog\;CREATE SCHEMA IF NOT EXISTS compliance\;CREATE SCHEMA IF NOT EXISTS syndication\;CREATE SCHEMA IF NOT EXISTS dam\;CREATE SCHEMA IF NOT EXISTS taxonomy\;CREATE SCHEMA IF NOT EXISTS localization\;CREATE DOMAIN IF NOT EXISTS jsonb AS JSON
+    username: sa
+    password: ""
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        default_schema: catalog
+        format_sql: false
+    open-in-view: false
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-standalone.sql
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    listener:
+      auto-startup: false
+
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration

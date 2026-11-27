@@ -26,6 +26,19 @@ public class JsonbConverters {
 
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
+    private static String unwrapIfQuoted(String dbData) {
+        if (dbData == null) return null;
+        String trimmed = dbData.trim();
+        if (trimmed.startsWith("\"") && trimmed.endsWith("\"") && trimmed.length() >= 2) {
+            try {
+                return objectMapper.readValue(trimmed, String.class);
+            } catch (Exception ignored) {
+                return trimmed.substring(1, trimmed.length() - 1);
+            }
+        }
+        return trimmed;
+    }
+
     @Converter(autoApply = false)
     public static class AttributeMapConverter implements AttributeConverter<Map<String, AttributeValue>, String> {
 
@@ -60,7 +73,8 @@ public class JsonbConverters {
         }
 
         @Override
-        public Map<String, AttributeValue> convertToEntityAttribute(String dbData) {
+        public Map<String, AttributeValue> convertToEntityAttribute(String rawData) {
+            String dbData = unwrapIfQuoted(rawData);
             if (dbData == null || dbData.isBlank() || dbData.equals("{}")) {
                 return new HashMap<>();
             }
@@ -92,7 +106,8 @@ public class JsonbConverters {
         }
 
         @Override
-        public Map<String, Object> convertToEntityAttribute(String dbData) {
+        public Map<String, Object> convertToEntityAttribute(String rawData) {
+            String dbData = unwrapIfQuoted(rawData);
             if (dbData == null || dbData.isBlank() || dbData.equals("{}")) return null;
             try {
                 return objectMapper.readValue(dbData, new TypeReference<>() {});
@@ -115,7 +130,8 @@ public class JsonbConverters {
         }
 
         @Override
-        public Map<String, String> convertToEntityAttribute(String dbData) {
+        public Map<String, String> convertToEntityAttribute(String rawData) {
+            String dbData = unwrapIfQuoted(rawData);
             if (dbData == null || dbData.isBlank() || dbData.equals("{}")) return new HashMap<>();
             try {
                 return objectMapper.readValue(dbData, new TypeReference<>() {});
@@ -155,7 +171,8 @@ public class JsonbConverters {
         }
 
         @Override
-        public Dimensions convertToEntityAttribute(String dbData) {
+        public Dimensions convertToEntityAttribute(String rawData) {
+            String dbData = unwrapIfQuoted(rawData);
             if (dbData == null || dbData.isBlank()) return null;
             try {
                 DimensionsDto dto = objectMapper.readValue(dbData, DimensionsDto.class);
@@ -195,7 +212,8 @@ public class JsonbConverters {
         }
 
         @Override
-        public List<DigitalAsset> convertToEntityAttribute(String dbData) {
+        public List<DigitalAsset> convertToEntityAttribute(String rawData) {
+            String dbData = unwrapIfQuoted(rawData);
             if (dbData == null || dbData.isBlank() || dbData.equals("[]")) return new ArrayList<>();
             try {
                 List<AssetDto> dtos = objectMapper.readValue(dbData, new TypeReference<>() {});
@@ -230,7 +248,8 @@ public class JsonbConverters {
         }
 
         @Override
-        public Set<String> convertToEntityAttribute(String dbData) {
+        public Set<String> convertToEntityAttribute(String rawData) {
+            String dbData = unwrapIfQuoted(rawData);
             if (dbData == null || dbData.isBlank() || dbData.equals("{}") || dbData.equals("[]")) return new HashSet<>();
             try {
                 if (dbData.trim().startsWith("[")) {
@@ -259,7 +278,8 @@ public class JsonbConverters {
         }
 
         @Override
-        public Map<String, String> convertToEntityAttribute(String dbData) {
+        public Map<String, String> convertToEntityAttribute(String rawData) {
+            String dbData = unwrapIfQuoted(rawData);
             if (dbData == null || dbData.isBlank() || dbData.equals("{}")) return new HashMap<>();
             try {
                 return objectMapper.readValue(dbData, new TypeReference<>() {});
